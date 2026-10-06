@@ -1,5 +1,7 @@
 // Two-player test through the real relay: one browser creates a game, a second one joins
-// with the invite link, the host starts, the seeker takes a page, then the hunter catches them.
+// with the invite link, the host starts, the seeker takes a page, abilities are tried, then
+// the hunter grabs the seeker three times (two escapes, then caught). A second round checks
+// that a seeker who doesn't struggle is caught when the time runs out.
 // Needs `npm run dev` running.   node tools/duo.mjs [baseUrl]
 import puppeteer from 'puppeteer-core';
 import { mkdir } from 'node:fs/promises';
@@ -32,8 +34,12 @@ try {
   const guest = await open(bb, 'guest');
   await guest.goto(`${BASE}?room=${code}`, { waitUntil: 'networkidle0' });
   await guest.waitForFunction('window.__game');
-  await host.waitForFunction(() => !document.querySelector('#start-game').disabled, { timeout: 10000 });
-  check(true, 'host sees the guest (Start enabled)');
+  await host.waitForFunction(() => window.__game.lobby.partner, { timeout: 10000 });
+  await guest.waitForFunction(() => !document.querySelector('#ready-game').disabled, { timeout: 10000 });
+  check(await host.$eval('#start-game', (e) => e.disabled), "host sees the guest; Start stays locked until they're ready");
+  await guest.click('#ready-game');
+  await host.waitForFunction(() => !document.querySelector('#start-game').disabled, { timeout: 5000 });
+  check(true, 'guest pressed Ready: Start unlocked');
   await host.screenshot({ path: 'shots/duo-lobby-host.png' });
   await guest.screenshot({ path: 'shots/duo-lobby-guest.png' });
 
@@ -41,6 +47,10 @@ try {
   await host.click('.role[data-role="hunter"]');
   await guest.waitForFunction(() => document.querySelector('.role[data-role="seeker"]').classList.contains('mine'));
   check(true, 'role switch reached the guest');
+  const unready = await Promise.all([host.$eval('#start-game', (e) => e.disabled), guest.evaluate(() => window.__game.lobby.ready)]);
+  check(unready[0] && !unready[1], 'switching roles un-readies the guest (Start locked again)');
+  await guest.click('#ready-game');
+  await host.waitForFunction(() => !document.querySelector('#start-game').disabled, { timeout: 5000 });
 
   await host.click('#start-game');
   await Promise.all([host, guest].map((p) => p.waitForFunction('window.__game.match', { timeout: 10000 })));
@@ -53,17 +63,45 @@ try {
   const seen = await host.evaluate(() => window.__game.match.remote.visible);
   check(seen, 'host sees the guest\'s character');
 
-  // seeker walks up to page 1 and takes it
-  await guest.evaluate(() => {
-    const g = window.__game, m = g.match, p = m.pages[0];
-    const tree = p.pos.clone();
-    const dir = p.mesh.getWorldDirection(new (tree.constructor)()); // page faces away from its tree
-    const stand = tree.clone().addScaledVector(dir, 1.2);
-    g.player.pos.set(stand.x, g.world.heightAt(stand.x, stand.z), stand.z);
-    g.player.eyeY = g.player.pos.y + 1.65;
-    g.player.yaw = Math.atan2(dir.x, dir.z);
-    g.player.pitch = Math.atan2(p.pos.y - (g.player.pos.y + 1.65), 1.2);
+  // the seeker jumps (as Space would): up about half a metre, seen from the other screen too, and back down
+  const jumping = guest.evaluate(async () => {
+    const p = window.__game.player, ground = p.pos.y;
+    p.vy = p.stats.jump;
+    let top = 0;
+    for (let i = 0; i < 12; i++) { await new Promise((r) => setTimeout(r, 50)); top = Math.max(top, p.pos.y - ground); }
+    await new Promise((r) => setTimeout(r, 700));
+    return { top, landed: p.air === 0 };
   });
+  const seenUp = await host.evaluate(async () => {
+    const m = window.__game.match, ground = m.remoteState().y;
+    let top = 0;
+    for (let i = 0; i < 16; i++) { await new Promise((r) => setTimeout(r, 50)); top = Math.max(top, m.remoteState().y - ground); }
+    return top;
+  });
+  const jump = await jumping;
+  check(jump.top > 0.75 && jump.top < 1.05 && jump.landed && seenUp > 0.6, `seeker jumps ${jump.top.toFixed(2)} m and lands (the hunter sees ${seenUp.toFixed(2)} m)`);
+
+  // seeker walks up to page 1 and takes it. Stand 1.2 m in front of it; if that spot is inside a
+  // trunk or rock the game pushes them out (maybe out of reach), so try spots fanning out around it.
+  const inReach = await guest.evaluate(async () => {
+    const g = window.__game, m = g.match, p = m.pages[0], V = p.pos.constructor;
+    const out = p.mesh.getWorldDirection(new V()); // page faces away from its tree
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let i = 0; i < 12; i++) {
+      const dir = out.clone().applyAxisAngle(new V(0, 1, 0), (i % 2 ? 1 : -1) * Math.ceil(i / 2) * 0.3);
+      const stand = p.pos.clone().addScaledVector(dir, 1.2);
+      g.player.pos.set(stand.x, g.world.heightAt(stand.x, stand.z), stand.z);
+      g.player.eyeY = g.player.pos.y + 1.65;
+      await wait(150); // a frame or two: collisions settle where they really stand
+      const eye = g.engine.camera.position;
+      g.player.yaw = Math.atan2(-(p.pos.x - eye.x), -(p.pos.z - eye.z));
+      g.player.pitch = Math.atan2(p.pos.y - eye.y, Math.hypot(p.pos.x - eye.x, p.pos.z - eye.z));
+      await wait(100);
+      if (m.lookedAtPage()) return true;
+    }
+    return false;
+  });
+  check(inReach, 'seeker stands at page 1, looking at it');
   await sleep(500);
   await guest.screenshot({ path: 'shots/duo-page.png' });
   await guest.evaluate(() => window.__game.match.tryTake()); // F in game (keys need pointer lock, which headless can't get)
@@ -105,6 +143,10 @@ try {
   await face(guest);
   await face(host);
   await sleep(300);
+
+  // the hunter 8 m away, in plain sight: static on the seeker's screen (and a heartbeat)
+  const dread = await guest.evaluate(() => ({ d: window.__game.match.dread, s: window.__game.engine.film.uniforms.uStatic.value }));
+  check(dread.d > 0.15 && dread.s >= dread.d, `seeker feels the hunter close (dread ${dread.d.toFixed(2)}, static ${dread.s.toFixed(2)})`);
 
   // pistol: hit → hunter stunned; a second hit while stunned is resisted
   await guest.evaluate(() => window.__game.match.shoot());
@@ -162,13 +204,39 @@ try {
   const moved = Math.hypot(after[0] - before[0], after[1] - before[1]);
   check(casting && tp.count === 1 && tp.cd > 0 && moved > 3, `hunter teleported ${moved.toFixed(1)} m after a 1 s wind-up (cooldown ${tp.cd.toFixed(0)} s)`);
 
-  // eye: reveals the seeker to the hunter
+  // eye: thrown at the seeker, stopped early by pressing it again, and it reveals them
   await face(host);
-  await host.evaluate(() => window.__game.match.useEye());
-  await sleep(3000);
+  await host.evaluate(() => {
+    // thrown level, towards them, or the nearest way with no trunk in the first 6 m (so it's still flying when stopped)
+    const g = window.__game, p = g.player, eye = g.engine.camera.position;
+    p.pitch = 0;
+    for (let i = 0; i < 24 && g.world.colliders.blocked(eye, eye.clone().addScaledVector(p.forward, 6)); i++) p.yaw += (i % 2 ? 1 : -1) * (i + 1) * 0.13;
+    g.match.useEye();
+  });
+  await sleep(200);
+  const stopped = await host.evaluate(() => {
+    const m = window.__game.match, eye = m.eyeOut, state = document.querySelector('[data-ab="eye"] .state').textContent;
+    const flyingBefore = !!eye?.flying;
+    m.useEye(); // pressed again: stop here
+    return { flyingBefore, state };
+  });
+  await sleep(1500);
   const eye = await host.evaluate(() => window.__game.match.revealUntil > 0);
   const eyeWarn = await guest.evaluate(() => window.__game.match.meRevealedUntil > 0);
-  check(eye && eyeWarn, `eye reveals the seeker (hunter sees: ${eye}, seeker warned: ${eyeWarn})`);
+  check(stopped.flyingBefore && stopped.state === 'stop', `eye in flight, its slot says "${stopped.state}"`);
+  check(eye && eyeWarn, `pressing again stops it and it reveals the seeker (hunter sees: ${eye}, seeker warned: ${eyeWarn})`);
+
+  // left alone, it flies a long way (aimed up, over the trees)
+  const far = await host.evaluate(async () => {
+    const g = window.__game, m = g.match;
+    m.cd.eye = 0; g.player.pitch = 0.75;
+    const from = g.engine.camera.position.clone();
+    m.useEye();
+    const eye = m.eyeOut;
+    await new Promise((r) => setTimeout(r, 3000));
+    return eye.pos.distanceTo(from);
+  });
+  check(far > 35, `unstopped, the eye flies ${far.toFixed(0)} m (was about 18)`);
   await host.screenshot({ path: 'shots/duo-eye-hunter.png' });
 
   // abilities come back: the seeker's flash is on cooldown, not used up
@@ -205,21 +273,66 @@ try {
   const refilled = await guest.evaluate(() => window.__game.match.ammo);
   check(empty === 0 && refilled === 3, `empty gun reloads by itself (0 → ${refilled})`);
 
-  // hunter walks onto the seeker
-  await sleep(500);
-  await host.evaluate(() => {
-    const g = window.__game, s = g.match.remoteState();
-    g.player.pos.set(s.x + 0.5, s.y, s.z);
-  });
-  await sleep(1000);
+  // grabs: the hunter walks up and grabs; the seeker mashes Break free and escapes, twice
+  const grabNow = async () => {
+    await host.evaluate(() => {
+      const g = window.__game, m = g.match, s = m.remoteState();
+      m.cd.grab = 0; m.stunnedUntil = 0; // skip the cooldown and the stagger
+      g.player.pos.set(s.x + 1.2, s.y, s.z);
+      g.player.eyeY = g.player.pos.y + 2.45;
+    });
+    await sleep(300);
+    await face(host);
+    return host.evaluate(() => { const m = window.__game.match; const could = m.canGrab(); m.tryGrab(); return could && !!m.grab; });
+  };
+  for (const n of [1, 2]) {
+    const grabbed = await grabNow();
+    await sleep(500);
+    const held = await guest.evaluate(() => ({ n: window.__game.match.grab?.n, bar: document.querySelector('#escape').classList.contains('show') }));
+    check(grabbed && held.n === n && held.bar, `grab ${n}: the seeker is held and sees the break-free bar`);
+    if (n === 1) {
+      await sleep(300);
+      await guest.screenshot({ path: 'shots/duo-grabbed-seeker.png' });
+      await host.screenshot({ path: 'shots/duo-grab-hunter.png' });
+    }
+    await guest.evaluate(() => { const m = window.__game.match; for (let i = 0; i < 40 && m.grab; i++) m.struggle(); });
+    await sleep(500);
+    const after = await host.evaluate(() => { const m = window.__game.match; return { held: !!m.grab, staggered: m.stunned, cd: m.cd.grab }; });
+    check(!after.held && after.staggered && after.cd > 0, `grab ${n}: the seeker broke free, the hunter staggers`);
+  }
+  // the third grab can't be escaped
+  const third = await grabNow();
+  await sleep(600);
+  const lifted = await guest.evaluate(() => ({ kill: window.__game.match.grab?.kill, bar: document.querySelector('#escape').classList.contains('show') }));
+  check(third && lifted.kill && !lifted.bar, 'grab 3: no way out');
+  await host.screenshot({ path: 'shots/duo-kill-hunter.png' });
+  await sleep(2400);
   const ends = await Promise.all([host, guest].map((p) => p.$eval('#end-title', (e) => e.textContent)));
   check(ends[0] === 'Victory' && ends[1] === 'Defeat', `end screens: host "${ends[0]}", guest "${ends[1]}"`);
+  const recap = await guest.evaluate(() => ({ stats: document.querySelector('#recap-stats').innerText, map: document.querySelector('#recap-map').width, path: window.__game.match.track.seeker.filter(Boolean).length }));
+  check(/Caught/i.test(recap.stats) && /1 \/ 5/.test(recap.stats) && recap.map > 0 && recap.path > 5, `recap: map drawn, ${recap.path} path points, stats "${recap.stats.replace(/\s+/g, ' ')}"`);
   await host.screenshot({ path: 'shots/duo-end-host.png' });
 
-  // back to the lobby
+  // back to the lobby: both have to vote (1/2, then 2/2)
   await host.click('#end-lobby');
-  await guest.waitForFunction(() => document.querySelector('#lobby').classList.contains('show'), { timeout: 5000 });
-  check(true, 'both back in the lobby');
+  await sleep(600);
+  const half = await Promise.all([host, guest].map((p) => p.evaluate(() => ({ label: document.querySelector('#end-lobby').textContent, end: document.querySelector('#end').classList.contains('show') }))));
+  check(half.every((h) => h.label === 'Back to lobby 1/2' && h.end), `one vote: both see "${half[0].label}" / "${half[1].label}" and stay on the end screen`);
+  await guest.click('#end-lobby');
+  await Promise.all([host, guest].map((p) => p.waitForFunction(() => document.querySelector('#lobby').classList.contains('show'), { timeout: 5000 })));
+  check(true, 'second vote (2/2): both back in the lobby');
+
+  // a second round: the seeker doesn't struggle, so the first grab catches them when time runs out
+  await guest.waitForFunction(() => !document.querySelector('#ready-game').disabled && !window.__game.lobby.ready, { timeout: 8000 });
+  await guest.click('#ready-game');
+  await host.waitForFunction(() => !document.querySelector('#start-game').disabled, { timeout: 5000 });
+  await host.click('#start-game');
+  await Promise.all([host, guest].map((p) => p.waitForFunction('window.__game.match && !window.__game.match.over', { timeout: 10000 })));
+  await sleep(1500);
+  check(await grabNow(), 'round 2: grabbed');
+  await sleep(4000 + 1200);
+  const ends2 = await Promise.all([host, guest].map((p) => p.$eval('#end-title', (e) => e.textContent)));
+  check(ends2[0] === 'Victory' && ends2[1] === 'Defeat', `no struggling: caught when the time ran out (host "${ends2[0]}", guest "${ends2[1]}")`);
 } catch (e) {
   ok = false;
   console.log('FAIL', e.message);

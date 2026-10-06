@@ -6,6 +6,8 @@
 // ws://<same hostname>:8788 (`npm run dev` starts the relay; the hostname makes
 // it work from a phone on the same Wi-Fi too).
 // The connection reconnects by itself and rejoins the same room.
+// Local events (not sent by the other player): 'link' { up } when our own connection drops
+// or comes back, 'peer' { here } when the other player connects or drops.
 // Dev-only: ?localnet uses BroadcastChannel instead (tabs of one browser, no relay).
 
 const LOCAL = import.meta.env.DEV && new URLSearchParams(location.search).has('localnet');
@@ -15,9 +17,21 @@ const RELAY = LOCAL ? null
       : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/relay`);
 
 const handlers = new Map(); // type -> Set(cb)
-const id = Math.random().toString(36).slice(2, 10); // this client, to drop our own echoes
+// this client, to drop our own echoes. Kept for the tab's lifetime, so after a reload the
+// relay knows it's the same player and frees the old seat instead of saying the room is full.
+const id = (() => {
+  try {
+    const saved = sessionStorage.getItem('woods-id');
+    if (saved) return saved;
+    const fresh = Math.random().toString(36).slice(2, 10);
+    sessionStorage.setItem('woods-id', fresh);
+    return fresh;
+  } catch { return Math.random().toString(36).slice(2, 10); }
+})();
 let transport = null;
 let room = null;
+
+const emit = (type, d) => handlers.get(type)?.forEach((cb) => cb(d, null));
 
 function dispatch(msg) {
   if (!msg || msg.from === id) return;
@@ -27,7 +41,7 @@ function dispatch(msg) {
 
 // WebSocket relay with automatic reconnect. first: { $: 'create' } or { $: 'join', room }
 function relayTransport(first) {
-  let ws = null, closed = false, retry = 0, timer = null;
+  let ws = null, closed = false, retry = 0, timer = null, hold = 0;
   let settle; // resolves/rejects the first create/join
   const ready = new Promise((resolve, reject) => { settle = { resolve, reject }; });
 
@@ -41,7 +55,14 @@ function relayTransport(first) {
     ws.onmessage = (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
-      if (msg.$ === 'created' || msg.$ === 'joined') { room = msg.room; settle?.resolve(room); settle = null; return; }
+      if (msg.$ === 'created' || msg.$ === 'joined') {
+        room = msg.room;
+        settle?.resolve(room); settle = null;
+        emit('link', { up: true });
+        emit('peer', { here: (msg.peers ?? 0) > 0 });
+        return;
+      }
+      if (msg.$ === 'peer') { emit('peer', { here: !!msg.here }); return; }
       if (msg.$ === 'error') {
         if (settle) { settle.reject(new Error(msg.msg)); settle = null; api.close(); }
         return;
@@ -52,8 +73,10 @@ function relayTransport(first) {
       if (closed) return;
       // first attempt failed outright: report it instead of retrying forever
       if (settle && retry >= 3) { settle.reject(new Error("Can't reach the game server. Check your connection.")); settle = null; closed = true; return; }
+      if (!settle && retry === 0) emit('link', { up: false });
       retry++;
-      timer = setTimeout(connect, Math.min(4000, 500 * retry));
+      timer = setTimeout(connect, Math.max(hold, Math.min(4000, 500 * retry)));
+      hold = 0;
     };
     ws.onerror = () => {};
   };
@@ -62,6 +85,7 @@ function relayTransport(first) {
     ready,
     send: (msg) => { if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg)); },
     close: () => { closed = true; clearTimeout(timer); ws?.close(); },
+    drop: (ms) => { hold = ms; ws?.close(); },
   };
   connect();
   return api;
@@ -102,6 +126,8 @@ export const net = {
     handlers.get(type).add(cb);
     return () => handlers.get(type)?.delete(cb);
   },
+  // tests: cut the connection as if the network dropped, and stay offline for `ms`
+  simulateDrop(ms = 2000) { transport?.drop?.(ms); },
   leave() {
     if (transport) {
       try { transport.send({ t: 'bye', d: {}, from: id }); } catch {}

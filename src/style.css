@@ -35,6 +35,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 
 .btn-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
 .btn-row.center { justify-content: center; }
+.btn-row.end { justify-content: flex-end; gap: 8px; }
 .btn {
   position: relative; border: 1px solid rgba(236, 232, 225, 0.35); background: rgba(15, 25, 35, 0.55); color: var(--ink);
   font: 600 16px var(--cond); letter-spacing: 0.2em; text-transform: uppercase; padding: 13px 30px; cursor: pointer;
@@ -84,12 +85,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 
 /* --- lobby (agent select) --- */
 #lobby { background: radial-gradient(ellipse at 50% 120%, rgba(255, 70, 85, 0.18), transparent 60%), linear-gradient(180deg, rgba(15, 25, 35, 0.92), rgba(15, 25, 35, 0.75)); }
-.select-head { position: absolute; top: 6vh; left: clamp(24px, 6vw, 100px); right: clamp(24px, 6vw, 100px); display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; flex-wrap: wrap; }
+/* stacked top to bottom (header, cards, footer), so nothing overlaps on small or short screens */
+#lobby.show { display: flex; flex-direction: column; align-items: center; gap: clamp(10px, 2.5vh, 26px); padding: clamp(14px, 5vh, 56px) 0 clamp(14px, 4vh, 44px); box-sizing: border-box; }
+.select-head { align-self: stretch; margin: 0 clamp(16px, 6vw, 100px); display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; flex-wrap: wrap; }
 .code-card { background: rgba(15, 25, 35, 0.85); border: 1px solid var(--line); border-top: 3px solid var(--red); padding: 14px 18px; text-align: right; }
 .code { font: 400 58px/1 var(--head); letter-spacing: 0.3em; margin: 4px -0.3em 8px 0; }
-.roles { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -46%); display: grid; grid-template-columns: repeat(2, min(300px, 40vw)); gap: 18px; }
+.roles { flex: 1; min-height: 0; max-height: 400px; display: grid; grid-template-columns: repeat(2, min(300px, 40vw)); grid-template-rows: 100%; gap: 18px; }
 .role {
-  position: relative; height: min(46vh, 400px); text-align: left; color: var(--ink); cursor: pointer; padding: 22px; display: flex; flex-direction: column;
+  position: relative; height: 100%; min-height: 0; text-align: left; color: var(--ink); cursor: pointer; padding: 22px; display: flex; flex-direction: column;
   justify-content: flex-end; gap: 6px; font-family: var(--body); border: 1px solid var(--line); overflow: hidden;
   background: linear-gradient(180deg, rgba(27, 39, 51, 0.6), rgba(15, 25, 35, 0.95)); clip-path: polygon(0 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%);
   transition: border-color 0.15s, transform 0.15s;
@@ -109,15 +112,20 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 .role-who { position: absolute; top: 16px; right: 16px; font: 600 12px var(--cond); letter-spacing: 0.22em; text-transform: uppercase; background: var(--red); color: #fff; padding: 4px 10px; }
 .role-who:empty { display: none; }
 .role:not(.mine) .role-who { background: rgba(236, 232, 225, 0.15); color: var(--ink); }
-.select-foot { position: absolute; bottom: 6vh; left: 0; right: 0; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.select-foot { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: auto; }
+.select-head + .roles { margin-top: auto; } /* (with the foot's margin: cards and buttons sit in the middle of the space left) */
 .status-line { font: 600 14px var(--cond); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin: 0; text-align: center; padding: 0 16px; }
 .btn.lockin { background: var(--red); border-color: var(--red); color: #fff; font: 400 32px/1 var(--head); letter-spacing: 0.12em; padding: 14px 64px 10px; }
 .btn.lockin:hover:not(:disabled) { background: #fff; color: var(--red); }
-@media (max-width: 640px) { .roles { grid-template-columns: 1fr 1fr; gap: 10px; } .role { height: 40vh; padding: 14px; } .role-name { font-size: 44px; } .role-desc { display: none; } }
+/* short screens: smaller header, the description makes way for the picture */
+@media (max-height: 700px) { .heading.xl { font-size: 48px; } .code { font-size: 40px; } .role-desc { display: none; } .role-name { font-size: 50px; } .ready-banner { font-size: 24px; } }
+@media (max-width: 640px) { .roles { grid-template-columns: 1fr 1fr; gap: 10px; } .role { padding: 14px; } .role-name { font-size: 44px; } .role-desc { display: none; } }
 
 /* --- settings --- */
 .setting { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font: 600 15px var(--cond); letter-spacing: 0.12em; text-transform: uppercase; }
 .setting select, .setting input { accent-color: var(--red); }
+.range-ctl { display: flex; align-items: center; gap: 10px; }
+.range-val { min-width: 3ch; text-align: right; font: 600 14px var(--body); letter-spacing: 0; color: var(--ink); }
 .setting select { background: var(--navy); color: var(--ink); border: 1px solid var(--line); padding: 6px 10px; font: 500 14px var(--body); }
 
 /* --- HUD --- */
@@ -195,13 +203,27 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 .center-msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; width: min(600px, 90vw); }
 .center-msg .big { font: 400 clamp(60px, 8vw, 104px)/0.9 var(--head); letter-spacing: 0.04em; text-transform: uppercase; }
 #click-to-play { background: rgba(15, 25, 35, 0.45); cursor: pointer; }
+#waiting { background: rgba(15, 25, 35, 0.7); }
 
 /* round end banner */
 #end { background: rgba(15, 25, 35, 0.55); }
 .end-banner { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); text-align: center; padding: 30px 16px; background: linear-gradient(90deg, transparent, rgba(15, 25, 35, 0.9) 25%, rgba(15, 25, 35, 0.9) 75%, transparent); }
 .end-line { height: 2px; width: min(520px, 80vw); margin: 0 auto; background: linear-gradient(90deg, transparent, currentColor, transparent); }
-.end-title { font: 400 clamp(90px, 14vw, 180px)/0.9 var(--head); letter-spacing: 0.08em; margin-top: 18px; animation: pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1); }
-.end-sub { font: 600 16px var(--cond); letter-spacing: 0.3em; text-transform: uppercase; color: var(--muted); margin: 4px 0 20px; }
+.end-title { font: 400 clamp(72px, 11vw, 140px)/0.9 var(--head); letter-spacing: 0.08em; margin-top: 18px; animation: pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.end-sub { font: 600 16px var(--cond); letter-spacing: 0.3em; text-transform: uppercase; color: var(--muted); margin: 4px 0 18px; }
+/* recap: the map of both paths, and the numbers */
+.recap { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 18px 36px; margin: 0 auto 22px; color: var(--ink); text-align: left; }
+.recap-map { width: min(240px, 60vw); aspect-ratio: 1; }
+.recap-stats { display: grid; grid-template-columns: repeat(2, minmax(120px, auto)); gap: 16px 32px; }
+.stat .k { font: 600 12px var(--cond); letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
+.stat .v { font: 400 40px/1 var(--head); letter-spacing: 0.04em; margin-top: 2px; }
+.stat .s { font: 500 12px var(--cond); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.recap-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 18px; font: 600 12px var(--cond); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); }
+.recap-legend .sw { display: inline-block; width: 14px; height: 3px; margin-right: 7px; vertical-align: middle; }
+.sw.seeker { background: #3fe0c5; }
+.sw.hunter { background: #a87bff; }
+.sw.close { background: repeating-linear-gradient(90deg, var(--red) 0 3px, transparent 3px 6px); }
+.sw.page { width: 7px; height: 7px; background: var(--ink); transform: rotate(45deg); margin: 0 9px 0 3px; }
 #end.win .end-banner { color: var(--teal); }
 #end.lose .end-banner { color: var(--red); }
 .end-banner .btn-row { margin-top: 26px; }
@@ -226,3 +248,75 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 .role-art.rendered { inset: 0 0 26% 0; background-size: auto 100%, 100% 100%; background-position: center bottom, center; }
 .ammo .reload { height: 3px; background: rgba(236, 232, 225, 0.15); margin-top: 6px; }
 .ammo .reload i { display: block; height: 100%; width: 0; background: var(--red); }
+
+/* grabbed: mash to break free */
+.escape { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); width: min(420px, 80vw); text-align: center; opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.escape.show { opacity: 1; animation: shake 0.12s infinite; }
+.escape-title { font: 400 56px/1 var(--head); letter-spacing: 0.12em; color: var(--red); text-shadow: 0 0 24px rgba(255, 70, 85, 0.6); }
+.escape-hint { font: 600 16px var(--cond); letter-spacing: 0.2em; text-transform: uppercase; margin: 4px 0 12px; }
+.escape-hint b { background: var(--ink); color: var(--navy); padding: 1px 9px; margin: 0 3px; }
+.escape-bar { height: 12px; background: rgba(15, 25, 35, 0.75); border: 1px solid var(--line); }
+.escape-bar i { display: block; height: 100%; width: 0; background: var(--teal); transition: width 0.06s; }
+.escape-time { height: 3px; margin-top: 4px; background: rgba(236, 232, 225, 0.12); }
+.escape-time i { display: block; height: 100%; width: 100%; background: var(--red); }
+@keyframes shake { 0% { transform: translate(-50%, 0); } 33% { transform: translate(calc(-50% - 2px), 1px); } 66% { transform: translate(calc(-50% + 2px), -1px); } }
+
+/* key remapping */
+#controls { background: linear-gradient(90deg, rgba(15, 25, 35, 0.92) 0%, rgba(15, 25, 35, 0.6) 40%, rgba(15, 25, 35, 0) 72%); }
+.controls-panel { max-height: calc(100vh - 48px); overflow-y: auto; }
+.binds h3 { font: 600 13px var(--cond); letter-spacing: 0.28em; text-transform: uppercase; color: var(--red); margin: 18px 0 2px; }
+.bind { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font: 500 15px var(--body); }
+.bind button { min-width: 92px; background: rgba(236, 232, 225, 0.08); color: var(--ink); border: 1px solid var(--line); padding: 5px 10px; font: 600 14px var(--cond); letter-spacing: 0.1em; cursor: pointer; }
+.bind button:hover { border-color: var(--ink); }
+.bind button.listening { background: var(--red); border-color: var(--red); color: #fff; }
+.last-input { font: 500 12px var(--body); margin: 12px 0 14px; opacity: 0.8; }
+
+/* the pause menu (and screens like it) hide the in-game HUD */
+#ui.covered #hud { visibility: hidden; }
+
+/* "save changes?" over the Controls screen */
+.confirm { position: absolute; inset: 0; display: none; place-items: center; background: rgba(8, 12, 18, 0.7); backdrop-filter: blur(3px); z-index: 5; }
+.confirm.show { display: grid; }
+.confirm-box { width: min(440px, calc(100vw - 32px)); background: var(--navy); border: 1px solid var(--line); border-top: 3px solid var(--red); padding: 26px 28px; }
+.confirm-box .heading { font-size: 48px; margin-bottom: 6px; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+
+/* the guest's Ready button: outlined until pressed, then filled teal */
+.btn.lockin.ready { background: transparent; border-color: var(--teal); color: var(--teal); }
+.btn.lockin.ready.on { background: var(--teal); border-color: var(--teal); color: var(--navy); }
+.btn.lockin.ready:hover:not(:disabled) { background: var(--teal); color: var(--navy); }
+.role-who.ready { background: var(--teal); color: var(--navy); }
+
+/* is the guest ready? Big enough for the host to see at a glance */
+.ready-banner {
+  display: none; align-items: center; gap: 12px; padding: 8px 22px 5px; margin: 0 auto; width: fit-content;
+  font: 400 30px/1 var(--head); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+  border: 1px solid var(--line); background: rgba(15, 25, 35, 0.8);
+}
+.ready-banner.show { display: flex; }
+.ready-banner .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--muted); animation: blink 1.2s ease-in-out infinite; margin-top: -3px; }
+.ready-banner.on { color: var(--navy); background: var(--teal); border-color: var(--teal); box-shadow: 0 0 28px rgba(63, 224, 197, 0.55); animation: pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.ready-banner.on .dot { display: none; }
+@keyframes blink { 50% { opacity: 0.25; } }
+/* the guest's card when they're ready: teal frame, glow and a READY stamp */
+.role.ready-card { border-color: var(--teal); box-shadow: inset 0 0 0 2px var(--teal), 0 0 34px rgba(63, 224, 197, 0.35); }
+.role.ready-card::before {
+  content: 'Ready'; position: absolute; top: 46px; left: 50%; transform: translateX(-50%) rotate(-8deg); z-index: 2;
+  font: 400 54px/1 var(--head); letter-spacing: 0.14em; color: var(--teal); text-transform: uppercase;
+  border: 3px solid var(--teal); padding: 6px 16px 2px; background: rgba(15, 25, 35, 0.7); text-shadow: 0 0 18px rgba(63, 224, 197, 0.6);
+}
+/* Lock in, once it can be pressed */
+.btn.lockin.go { animation: go 1.4s ease-in-out infinite; }
+@keyframes go { 50% { box-shadow: 0 0 0 6px rgba(255, 70, 85, 0.25), 0 0 30px rgba(255, 70, 85, 0.5); } }
+
+/* end screen: the back-to-lobby vote */
+#end-lobby.voted { background: transparent; color: var(--teal); border-color: var(--teal); }
+#end-lobby.asked { animation: go 1.4s ease-in-out infinite; }
+.end-vote-note { font: 600 14px var(--cond); letter-spacing: 0.16em; text-transform: uppercase; color: var(--muted); min-height: 18px; margin: 12px 0 0; }
+
+/* stamina bar while out of breath: dimmed red until sprinting is allowed again */
+.stamina.winded i { background: var(--red); opacity: 0.55; }
+
+/* minimap, top left under the role tag */
+.minimap { position: absolute; top: 46px; left: 20px; width: 168px; height: 168px; opacity: 0.9; pointer-events: none; }
+@media (max-height: 560px) { .minimap { width: 120px; height: 120px; } }

@@ -1,4 +1,5 @@
-// Synthesized sound (no audio files): wind ambience, footsteps on leaves, page pickup.
+// Synthesized sound (no audio files): the night-forest ambience, footsteps on leaves, the page
+// pickup, and the gun and ability sounds.
 import { settings } from './settings.js';
 
 let ctx = null, master = null, noiseBuf = null;
@@ -17,7 +18,7 @@ function noise(seconds = 2) {
 
 // An output for one sound: distance fades it and muffles it, pan places it left/right.
 // at = { dist, pan } (metres, -1..1); leave it out for sounds that are "in your head".
-function out(at, vol = 1) {
+function out(at, vol = 1, dest = master) {
   const g = ctx.createGain();
   g.gain.value = vol * (at ? 1 / (1 + at.dist / 8) : 1);
   if (at) {
@@ -26,8 +27,8 @@ function out(at, vol = 1) {
     lp.frequency.value = Math.max(600, 16000 / (1 + at.dist / 6));
     const p = ctx.createStereoPanner();
     p.pan.value = Math.max(-1, Math.min(1, at.pan));
-    g.connect(lp).connect(p).connect(master);
-  } else g.connect(master);
+    g.connect(lp).connect(p).connect(dest);
+  } else g.connect(dest);
   return g;
 }
 
@@ -89,9 +90,156 @@ const SOUNDS = {
   },
   stun(d, t) { tone(d, t, { from: 620, decay: 0.8, vol: 0.2 }); tone(d, t, { from: 931, decay: 0.6, vol: 0.12 }); noiseHit(d, t, { type: 'highpass', freq: 4000, decay: 0.1, vol: 0.4 }); },
   revealed(d, t) { tone(d, t, { type: 'square', from: 880, decay: 0.12, vol: 0.08 }); tone(d, t + 0.15, { type: 'square', from: 660, decay: 0.2, vol: 0.08 }); },
+  // the hunter's grab: a lunge and a heavy, low hit
+  grab(d, t) {
+    noiseHit(d, t, { freq: 320, q: 1, attack: 0.01, decay: 0.28, vol: 1.1, sweepTo: 80 });
+    tone(d, t, { type: 'sawtooth', from: 95, to: 42, attack: 0.02, decay: 0.7, vol: 0.2 });
+  },
+  struggle(d, t) { noiseHit(d, t, { freq: 700 + Math.random() * 600, q: 1.5, attack: 0.005, decay: 0.07, vol: 0.3 }); },
+  breakFree(d, t) { noiseHit(d, t, { freq: 500, q: 1.2, attack: 0.02, decay: 0.3, vol: 0.8, sweepTo: 2500 }); },
+  // lub-dub: a deep thump and a softer one right after (the seeker's heart, when the hunter is near)
+  heart(d, t) {
+    tone(d, t, { from: 70, to: 42, attack: 0.008, decay: 0.16, vol: 0.9 });
+    noiseHit(d, t, { type: 'lowpass', freq: 160, attack: 0.005, decay: 0.1, vol: 1.2 });
+    tone(d, t + 0.19, { from: 60, to: 38, attack: 0.008, decay: 0.2, vol: 0.55 });
+    noiseHit(d, t + 0.19, { type: 'lowpass', freq: 130, attack: 0.005, decay: 0.12, vol: 0.7 });
+  },
   ready(d, t) { tone(d, t, { from: 1320, decay: 0.15, vol: 0.06 }); },
   deny(d, t) { tone(d, t, { type: 'square', from: 180, decay: 0.12, vol: 0.06 }); },
 };
+
+// --- ambience: a quiet night forest ---------------------------------------------------
+// A low wind bed with slow gusts, crickets, a distant owl now and then, twigs snapping and
+// branches creaking somewhere in the dark (they mean nothing, but you can't know that), and
+// a low drone that swells with danger. Danger (0..1, set by the match from how close the
+// hunter is) also hushes the crickets, like real ones going quiet near a predator.
+// Everything goes through `amb`, whose level is settings.ambience.
+let amb = null, crickets = null, drone = null, windGain = null, windFilter = null;
+const rand = (a, b) => a + Math.random() * (b - a);
+const ambient = { crickets: [], nextOwl: 0, nextTwig: 0, nextGust: 0, danger: 0 };
+
+// a sound somewhere around you in the dark: distance (m) and a random side
+const somewhere = (near, far) => ({ dist: rand(near, far), pan: rand(-1, 1) });
+
+function chirp(c, t) {
+  // one cricket call: a few very short, high pulses
+  for (let i = 0; i < c.pulses; i++) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = c.freq;
+    const at = t + i * c.gap;
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(c.vol, at + 0.004);
+    g.gain.linearRampToValueAtTime(0, at + 0.018);
+    o.connect(g).connect(c.out);
+    o.start(at); o.stop(at + 0.03);
+  }
+}
+
+function owl(t) {
+  // hoo … hoo-hoo, far away and muffled
+  const d = out(somewhere(35, 60), 1.4, amb);
+  const f = rand(330, 390);
+  for (const [dt, len, k] of [[0, 0.45, 1], [0.75, 0.22, 0.8], [1.05, 0.5, 0.9]]) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.setValueAtTime(f * 1.04, t + dt);
+    o.frequency.exponentialRampToValueAtTime(f * 0.94, t + dt + len);
+    g.gain.setValueAtTime(0.0001, t + dt);
+    g.gain.exponentialRampToValueAtTime(0.14 * k, t + dt + 0.06);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dt + len);
+    o.connect(g).connect(d);
+    o.start(t + dt); o.stop(t + dt + len + 0.05);
+  }
+}
+
+function twig(t) {
+  const d = out(somewhere(7, 22), 1, amb);
+  if (Math.random() < 0.6) {
+    // a twig snapping: a sharp crack and a splinter or two
+    noiseHit(d, t, { type: 'highpass', freq: 1800, attack: 0.001, decay: 0.035, vol: 0.5 });
+    noiseHit(d, t + rand(0.03, 0.08), { type: 'bandpass', freq: 2500, q: 3, attack: 0.001, decay: 0.025, vol: 0.25 });
+    noiseHit(d, t, { type: 'lowpass', freq: 400, attack: 0.002, decay: 0.06, vol: 0.3 });
+  } else {
+    // a branch creaking: a slow, wavering groan
+    const o = ctx.createOscillator(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    o.type = 'sawtooth';
+    const f = rand(70, 120), len = rand(0.8, 1.6);
+    o.frequency.setValueAtTime(f, t);
+    for (let i = 1; i <= 6; i++) o.frequency.linearRampToValueAtTime(f * rand(0.9, 1.12), t + (len * i) / 6);
+    bp.type = 'bandpass'; bp.frequency.value = rand(500, 900); bp.Q.value = 6;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.12, t + 0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    o.connect(bp).connect(g).connect(d);
+    o.start(t); o.stop(t + len + 0.05);
+  }
+}
+
+function startAmbience() {
+  amb = ctx.createGain();
+  amb.gain.value = settings.ambience;
+  amb.connect(master);
+  const now = ctx.currentTime;
+
+  // wind: low and soft, with a gust every so often (scheduled below)
+  const src = ctx.createBufferSource();
+  src.buffer = noise(6);
+  src.loop = true;
+  windFilter = ctx.createBiquadFilter();
+  windFilter.type = 'lowpass'; windFilter.frequency.value = 320;
+  windGain = ctx.createGain();
+  windGain.gain.value = 0.035;
+  src.connect(windFilter).connect(windGain).connect(amb);
+  src.start();
+
+  // crickets: a few, each with its own pitch, rhythm and place
+  crickets = ctx.createGain();
+  crickets.connect(amb);
+  for (let i = 0; i < 4; i++) {
+    const p = ctx.createStereoPanner();
+    p.pan.value = rand(-0.9, 0.9);
+    p.connect(crickets);
+    ambient.crickets.push({
+      out: p, freq: rand(4100, 5200), vol: rand(0.006, 0.013), pulses: 2 + Math.floor(rand(0, 3)),
+      gap: rand(0.028, 0.04), period: rand(0.7, 1.4), next: now + rand(0, 1.5),
+    });
+  }
+
+  // the danger drone: two slightly detuned low saws and a sub, kept silent until needed
+  drone = ctx.createGain();
+  drone.gain.value = 0;
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass'; lp.frequency.value = 170;
+  lp.connect(drone).connect(amb);
+  for (const [type, f, v] of [['sawtooth', 55, 0.5], ['sawtooth', 55.6, 0.5], ['sine', 41, 0.8]]) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = f; g.gain.value = v;
+    o.connect(g).connect(lp);
+    o.start();
+  }
+
+  ambient.nextOwl = now + rand(15, 30);
+  ambient.nextTwig = now + rand(8, 20);
+  ambient.nextGust = now + rand(5, 12);
+  // schedule a little ahead, a few times a second
+  setInterval(() => {
+    if (ctx.state !== 'running') return;
+    const t = ctx.currentTime, ahead = t + 0.4;
+    for (const c of ambient.crickets) {
+      while (c.next < ahead) { chirp(c, Math.max(c.next, t)); c.next += c.period * rand(0.9, 1.1); }
+    }
+    if (ambient.nextOwl < ahead) { owl(Math.max(ambient.nextOwl, t)); ambient.nextOwl += rand(30, 70); }
+    if (ambient.nextTwig < ahead) { twig(Math.max(ambient.nextTwig, t)); ambient.nextTwig += rand(12, 35); }
+    if (ambient.nextGust < ahead) {
+      // a gust: swell for a few seconds, then settle back
+      const at = Math.max(ambient.nextGust, t), up = rand(2, 4), down = rand(3, 6);
+      windGain.gain.setTargetAtTime(rand(0.07, 0.11), at, up / 3);
+      windGain.gain.setTargetAtTime(0.035, at + up, down / 3);
+      windFilter.frequency.setTargetAtTime(rand(500, 750), at, up / 3);
+      windFilter.frequency.setTargetAtTime(320, at + up, down / 3);
+      ambient.nextGust = at + up + down + rand(6, 16);
+    }
+  }, 200);
+}
 
 export const audio = {
   // must be called from a click/keypress (browsers block audio until then)
@@ -102,38 +250,37 @@ export const audio = {
     master.gain.value = settings.volume;
     master.connect(ctx.destination);
     noiseBuf = noise();
-
-    // wind: looping noise through a slowly wandering band-pass filter
-    const src = ctx.createBufferSource();
-    src.buffer = noise(6);
-    src.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.frequency.value = 400; bp.Q.value = 0.7;
-    const lfo = ctx.createOscillator(), lfoGain = ctx.createGain();
-    lfo.frequency.value = 0.07; lfoGain.gain.value = 250;
-    lfo.connect(lfoGain).connect(bp.frequency);
-    const g = ctx.createGain();
-    g.gain.value = 0.16;
-    src.connect(bp).connect(g).connect(master);
-    src.start(); lfo.start();
+    startAmbience();
   },
 
   setVolume(v) { if (master) master.gain.value = v; },
+  setAmbience(v) { if (amb) amb.gain.value = v; },
 
-  step(speed) {
-    if (!ctx) return;
+  // 0..1: how much danger the player is in (the hunter's closeness): the drone swells and
+  // the crickets fall silent
+  setDanger(k) {
+    if (!ctx || Math.abs(k - ambient.danger) < 0.01) return;
+    ambient.danger = k;
     const t = ctx.currentTime;
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuf;
-    const f = ctx.createBiquadFilter();
-    f.type = 'bandpass'; f.frequency.value = 900 + Math.random() * 900; f.Q.value = 0.9;
-    const g = ctx.createGain();
-    const vol = Math.min(1, 0.25 + speed * 0.1);
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(vol, t + 0.015);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18 + Math.random() * 0.08);
-    src.connect(f).connect(g).connect(master);
-    src.start(t, Math.random() * 1.5, 0.3);
+    drone.gain.setTargetAtTime(k * k * 0.16, t, 0.4);
+    crickets.gain.setTargetAtTime(Math.max(0, 1 - k * 1.6), t, 0.6);
+  },
+
+  // a footstep on leaf litter: a soft, muffled heel thud and a few faint crackles
+  // (quieter and darker than plain noise, which hissed); settings.steps is its volume
+  step(speed) {
+    if (!ctx || !settings.steps) return;
+    const t = ctx.currentTime;
+    const dest = ctx.createGain();
+    dest.gain.value = settings.steps * Math.min(1, 0.45 + speed * 0.08);
+    dest.connect(master);
+    noiseHit(dest, t, { type: 'lowpass', freq: 240 + Math.random() * 90, attack: 0.006, decay: 0.09 + Math.random() * 0.03, vol: 0.5 });
+    const crackles = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < crackles; i++) {
+      noiseHit(dest, t + 0.01 + Math.random() * 0.07, {
+        type: 'bandpass', freq: 1300 + Math.random() * 1500, q: 2.5, attack: 0.002, decay: 0.02 + Math.random() * 0.03, vol: 0.04 + Math.random() * 0.05,
+      });
+    }
   },
 
   page() {

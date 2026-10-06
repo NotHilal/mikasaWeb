@@ -1,12 +1,15 @@
 // One round: places the pages, spawns both players, syncs positions, handles page
-// pickups, the seeker's pistol and abilities, the hunter's teleport and eye, stuns,
-// reveals, catching, and the end of the round.
+// pickups, the seeker's pistol and abilities, the hunter's teleport, eye and grab, stuns,
+// reveals, and the end of the round.
 import * as THREE from 'three';
 import { net } from './net.js';
 import { hunterFigure, seekerFigure, addXray, setStunGlow } from './figures.js';
 import { audio } from './audio.js';
 import { $, flash, hud } from './ui.js';
-import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, FLASH, DASH, TELEPORT, EYE } from './config.js';
+import { settings } from './settings.js';
+import { createMinimap } from './minimap.js';
+import { actionFor, key, label, mouseCode } from './keys.js';
+import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT } from './config.js';
 
 const INTERP_MS = 110; // the other player is drawn this far in the past, to smooth over network jitter
 const v3 = (a) => new THREE.Vector3().fromArray(a);
@@ -39,17 +42,18 @@ function rayCylinder(o, d, cx, cz, r, y0, y1) {
   return null;
 }
 
-const COOLDOWN = { dart: DART.cooldown, flash: FLASH.cooldown, dash: DASH.cooldown, tp: TELEPORT.cooldown, eye: EYE.cooldown };
+const COOLDOWN = { dart: DART.cooldown, flash: FLASH.cooldown, dash: DASH.cooldown, tp: TELEPORT.cooldown, eye: EYE.cooldown, grab: GRAB.cooldown };
 
-// ability slots shown in the HUD, per role
+// ability slots shown in the HUD, per role: [key binding, name, cooldown id]
 const KIT = {
-  seeker: [['KeyC', 'C', 'Recon', 'dart'], ['KeyQ', 'Q', 'Flash', 'flash'], ['KeyE', 'E', 'Dash', 'dash']],
-  hunter: [['KeyQ', 'Q', 'Teleport', 'tp'], ['KeyE', 'E', 'Eye', 'eye']],
+  seeker: [['dart', 'Recon', 'dart'], ['flash', 'Flash', 'flash'], ['dash', 'Dash', 'dash']],
+  hunter: [['teleport', 'Teleport', 'tp'], ['eye', 'Eye', 'eye'], ['grab', 'Grab', 'grab']],
 };
+const turnTo = (from, to, k) => from + ((((to - from + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI) * k;
 
 export class Match {
-  constructor({ engine, world, player, flashlight, viewmodel, effects }, { seed, role }, onEnd) {
-    Object.assign(this, { engine, world, player, flashlight, viewmodel, effects, role, onEnd });
+  constructor({ engine, world, player, flashlight, viewmodel, hunterArms, effects }, { seed, role }, onEnd) {
+    Object.assign(this, { engine, world, player, flashlight, viewmodel, hunterArms, effects, role, onEnd });
     this.over = false;
     this.found = 0;
     this.snaps = [];
@@ -60,7 +64,12 @@ export class Match {
     this.ammo = GUN.ammo;
     this.reloadUntil = 0;
     // abilities: seconds until ready
-    this.cd = role === 'seeker' ? { dart: 0, flash: 0, dash: 0 } : { tp: 0, eye: 0 };
+    this.cd = role === 'seeker' ? { dart: 0, flash: 0, dash: 0 } : { tp: 0, eye: 0, grab: 0 };
+    // the grab: how many times the hunter has grabbed the seeker (both screens count), and the
+    // one in progress: { n, kill, start, until, need, drain, progress } (times in ms)
+    this.grabs = 0;
+    this.grab = null;
+    this.pose = { grab: 0, struggle: 0, lift: 0 }; // the other player's figure, smoothed
     this.aiming = false;
     this.tpCount = 0;
     this.remoteTp = 0;
@@ -72,14 +81,21 @@ export class Match {
     this.meRevealedUntil = 0;   // I'm revealed (warning) until
     this.blindUntil = 0;
     this.fovKick = 0;
+    this.dread = 0;             // seeker: 0..1, how close/visible the hunter is (static + heartbeat)
+    this.beatT = 0;
     this.startedAt = now();
-
-    // pages
-    this.pages = world.placePages(world.pickPages(seed));
+    // for the end-of-round recap: both paths, the closest the hunter got, stuns landed
+    this.track = { seeker: [], hunter: [] };
+    this.trackT = 0;
+    this.closest = { d: Infinity, seeker: null, hunter: null, t: 0 };
+    this.stuns = 0;
 
     // spawns: far apart, both facing the middle of the map
     const seekerSpawn = world.spawnPoint(seed * 3 + 1);
     const hunterSpawn = world.spawnPoint(seed * 7 + 2, seekerSpawn);
+
+    // pages: new spots every round (not right where the seeker starts)
+    this.pages = world.placePages(world.pickPages(seed, seekerSpawn));
     const mine = role === 'seeker' ? seekerSpawn : hunterSpawn;
     player.spawn(mine, role, role === 'seeker' ? SEEKER : HUNTER, new THREE.Vector3(0, 0, 0));
     player.onStep = (speed) => audio.step(speed);
@@ -92,9 +108,10 @@ export class Match {
     engine.scene.add(this.remote);
 
     // the hunter sees in the dark (dimly); the seeker relies on the flashlight
-    this.saved = { hemi: engine.hemi.intensity, sat: engine.film.uniforms.uSaturation.value, fov: engine.camera.fov };
+    this.saved = { hemi: engine.hemi.intensity, moon: engine.moon.intensity, sat: engine.film.uniforms.uSaturation.value };
     if (role === 'hunter') {
-      engine.hemi.intensity = 2.2;
+      engine.hemi.intensity = LIGHT.hunterAmbient;
+      engine.moon.intensity = LIGHT.hunterMoon;
       engine.film.uniforms.uSaturation.value = 0.5; // muted, but reveals and markers keep their colour
     }
     flashlight.on = role === 'seeker';
@@ -127,37 +144,45 @@ export class Match {
       net.on('fx', (d) => this.remoteFx(d)),
       net.on('hit', ({ head }) => this.onHit(!!head)),
       net.on('stun', ({ ok, ms, head }) => this.onStunReply(ok, ms, head)),
+      net.on('grab', ({ n }) => this.onGrabbed(n)),
+      net.on('escaped', () => this.onEscaped()),
       net.on('revealed', ({ ms }) => {
         this.meRevealedUntil = now() + ms;
         audio.play('revealed');
       }),
     );
 
-    // input
-    this.onKey = (e) => {
-      if (!this.player.enabled || this.over || e.repeat || !document.pointerLockElement) return;
+    // input: keys and mouse buttons alike, by code (see keys.js)
+    const press = (code) => {
+      if (!this.player.enabled || this.over || !document.pointerLockElement) return;
+      const a = actionFor(code, role);
+      // during a grab the only thing either of them can do is (the seeker) try to break free
+      if (this.grab) { if (code === key('escape')) this.struggle(); return; }
       if (role === 'seeker') {
-        if (e.code === 'KeyT') { flashlight.on = !flashlight.on; audio.click(); }
-        if (e.code === 'KeyF') this.tryTake();
-        if (e.code === 'KeyC') this.useDart();
-        if (e.code === 'KeyQ') this.useFlash();
-        if (e.code === 'KeyE') this.useDash();
-        if (e.code === 'KeyY') this.viewmodel.inspect();
+        if (a === 'shoot') this.shoot();
+        if (a === 'light') { flashlight.on = !flashlight.on; audio.click(); }
+        if (a === 'take') this.tryTake();
+        if (a === 'dart') this.useDart();
+        if (a === 'flash') this.useFlash();
+        if (a === 'dash') this.useDash();
+        if (a === 'inspect') this.viewmodel.inspect();
       } else {
-        if (e.code === 'KeyQ') this.startAim();
-        if (e.code === 'KeyE') this.useEye();
+        if (a === 'teleport') this.startAim();
+        if (a === 'eye') this.useEye();
+        if (a === 'grab') this.tryGrab();
+        if (a === 'cancelTp' && this.aiming) this.cancelAim();
       }
     };
-    this.onKeyUp = (e) => { if (e.code === 'KeyQ' && this.aiming) this.releaseAim(); };
-    this.onMouse = (e) => {
-      if (!document.pointerLockElement || this.over || !this.player.enabled) return;
-      if (role === 'seeker' && e.button === 0) this.shoot();
-      if (role === 'hunter' && e.button === 2 && this.aiming) this.cancelAim();
-    };
+    const release = (code) => { if (code === key('teleport') && this.aiming) this.releaseAim(); };
+    this.onKey = (e) => { if (!e.repeat) press(e.code); };
+    this.onKeyUp = (e) => release(e.code);
+    this.onMouse = (e) => press(mouseCode(e.button));
+    this.onMouseUp = (e) => release(mouseCode(e.button));
     this.onContext = (e) => e.preventDefault();
     addEventListener('keydown', this.onKey);
     addEventListener('keyup', this.onKeyUp);
     addEventListener('mousedown', this.onMouse);
+    addEventListener('mouseup', this.onMouseUp);
     addEventListener('contextmenu', this.onContext);
 
     // HUD
@@ -165,9 +190,13 @@ export class Match {
     $('#pages').classList.remove('show');
     $('#page-text').classList.remove('show');
     $('#stamina-fill').parentElement.classList.toggle('show', false);
-    $('#abilities').innerHTML = KIT[role].map(([, key, name, id]) =>
-      `<div class="ab" data-ab="${id}"><div class="key">${key}</div><div class="name">${name}</div><div class="state"></div><div class="cd"></div></div>`).join('');
+    $('#abilities').innerHTML = KIT[role].map(([action, name, id]) =>
+      `<div class="ab" data-ab="${id}"><div class="key">${label(action)}</div><div class="name">${name}</div><div class="state"></div><div class="cd"></div></div>`).join('');
+    $('#escape').classList.remove('show');
+    $('#escape-key').textContent = label('escape');
     $('#ammo').style.display = role === 'seeker' ? '' : 'none';
+    this.minimap = createMinimap($('#minimap'), world);
+    this.mapT = 0;
     this.renderHud();
     hud(true);
     this.showCount();
@@ -187,6 +216,27 @@ export class Match {
   send(type, d = {}) { net.send(type, d); }
 
   get stunned() { return now() < this.stunnedUntil; }
+
+  // freeze the round while a player is disconnected, and pick it up where it was afterwards
+  setPaused(on) {
+    if (on === !!this.pausedAt) return;
+    if (on) {
+      this.pausedAt = now();
+      this.player.enabled = false;
+      if (this.aiming) this.cancelAim();
+      return;
+    }
+    // push every running timer back by the time we were frozen
+    const gap = now() - this.pausedAt;
+    this.pausedAt = 0;
+    for (const k of ['startedAt', 'stunnedUntil', 'immuneUntil', 'remoteStunUntil', 'revealUntil', 'meRevealedUntil', 'blindUntil', 'reloadUntil']) {
+      if (this[k]) this[k] += gap;
+    }
+    if (this.tpCast) this.tpCast.until += gap;
+    if (this.grab) { this.grab.start += gap; this.grab.until += gap; }
+    this.snaps = []; // the other player's old positions; fresh ones follow at once
+    this.player.enabled = !this.over;
+  }
 
   // --- pages ------------------------------------------------------------------------
 
@@ -289,7 +339,9 @@ export class Match {
     if (t < this.stunnedUntil || t < this.immuneUntil) { this.send('stun', { ok: false }); return; }
     const ms = head ? GUN.headStunMs : GUN.bodyStunMs;
     this.stunnedUntil = t + ms;
+    this.shoved = false;
     this.immuneUntil = this.stunnedUntil + GUN.immuneMs;
+    this.stuns++;
     if (this.aiming) this.cancelAim();
     audio.play('stun');
     this.send('stun', { ok: true, ms, head });
@@ -298,6 +350,7 @@ export class Match {
   // seeker side: did my hit stun him?
   onStunReply(ok, ms, head) {
     if (ok) {
+      this.stuns++;
       this.remoteStunUntil = now() + ms;
       this.hitmarker(true);
       this.status(head ? 'Headshot · stunned 4s' : 'Stunned 2s', 1500);
@@ -463,6 +516,7 @@ export class Match {
     this.tpCast = null;
     this.player.pos.copy(pt);
     this.player.vel.set(0, 0, 0);
+    this.player.air = 0; this.player.vy = 0;
     this.player.eyeY = pt.y + HUNTER.eye;
     this.tpCount++;
     this.cd.tp = TELEPORT.cooldown;
@@ -477,19 +531,28 @@ export class Match {
 
   // --- hunter: eye ------------------------------------------------------------------------
 
+  // press once to throw the eye; press again while it's flying to stop it there and reveal
   useEye() {
+    if (this.eyeOut?.flying) {
+      this.eyeOut.stop();
+      this.send('fx', { k: 'eyestop', p: arr(this.eyeOut.pos) });
+      this.eyeOut = null;
+      audio.click();
+      this.renderHud();
+      return;
+    }
     if (this.cd.eye > 0 || this.stunned) return audio.play('deny');
     this.cd.eye = EYE.cooldown;
     const cam = this.engine.camera, f = this.player.forward;
     const origin = cam.position.clone().addScaledVector(f, 0.6);
-    this.launchEye(origin, f, true);
+    this.eyeOut = this.launchEye(origin, f, true);
     this.send('fx', { k: 'eye', p: arr(origin), d: arr(f) });
     audio.play('eye');
     this.renderHud();
   }
 
   launchEye(origin, dir, mine) {
-    this.effects.eye(origin, dir, {
+    return this.effects.eye(origin, dir, {
       speed: EYE.speed, flight: EYE.flight, delay: EYE.delay, radius: EYE.radius,
       onScan: (p) => {
         audio.play('eyeScan', this.at(p));
@@ -500,6 +563,132 @@ export class Match {
         if (new THREE.Vector3(rs.x, rs.y + 1.2, rs.z).distanceTo(p) < EYE.radius) this.reveal(EYE.revealMs);
       },
     });
+  }
+
+  // --- hunter: grab ------------------------------------------------------------------------
+  // Get close and press Grab. The seeker is pulled in and has to mash Break free; the first
+  // grab is easy to escape, the second hard, the third can't be escaped (see GRAB).
+  // The hunter decides a grab happened; the seeker decides whether they broke free.
+
+  // is the seeker close enough, and in front of me?
+  canGrab(rs = this.remoteState()) {
+    if (this.role !== 'hunter' || this.grab || this.cd.grab > 0 || this.stunned || this.tpCast || this.over || !rs) return false;
+    const to = new THREE.Vector3(rs.x - this.player.pos.x, 0, rs.z - this.player.pos.z);
+    const d = to.length();
+    if (d > GRAB.range) return false;
+    const f = this.player.forward.setY(0).normalize();
+    return d < 0.6 || to.normalize().dot(f) > Math.cos(THREE.MathUtils.degToRad(GRAB.angle));
+  }
+
+  tryGrab() {
+    if (!this.canGrab()) return audio.play('deny');
+    if (this.aiming) this.cancelAim();
+    const n = ++this.grabs, kill = n >= GRAB.kill, t = now();
+    const e = GRAB.escape[Math.min(n, GRAB.escape.length) - 1];
+    // if the seeker never answers (they'd have broken free or been caught by then), let go
+    this.grab = { n, kill, start: t, until: t + (kill ? GRAB.killMs : e.time * 1000 + 2500) };
+    this.send('grab', { n });
+    audio.play('grab');
+    this.status(kill ? 'Got them' : `Grab ${n} of ${GRAB.kill}`, 1600);
+    this.renderHud();
+  }
+
+  // seeker side: he's got me
+  onGrabbed(n) {
+    if (this.role !== 'seeker' || this.over) return;
+    this.grabs = n;
+    const kill = n >= GRAB.kill, t = now();
+    const e = GRAB.escape[Math.min(n, GRAB.escape.length) - 1];
+    this.grab = { n, kill, start: t, until: t + (kill ? GRAB.killMs : e.time * 1000), need: e.presses, drain: e.drain, progress: 0 };
+    this.player.dashT = 0;
+    this.jolt = 1;
+    this.engine.film.uniforms.uStatic.value = 0.7;
+    audio.play('grab');
+    if (kill) this.status('Caught', GRAB.killMs);
+    else $('#escape').classList.add('show');
+  }
+
+  // seeker: one press of Break free
+  struggle() {
+    const g = this.grab;
+    if (this.role !== 'seeker' || !g || g.kill) return;
+    g.progress++;
+    this.jolt = 1;
+    audio.play('struggle');
+    if (g.progress >= g.need) this.breakFree();
+  }
+
+  breakFree() {
+    const n = this.grab.n, p = this.player;
+    this.grab = null;
+    this.send('escaped', {});
+    // shove off him: a quick burst straight away
+    const rs = this.remoteState();
+    const away = rs ? new THREE.Vector3(p.pos.x - rs.x, 0, p.pos.z - rs.z) : new THREE.Vector3();
+    if (away.lengthSq() < 1e-4) away.copy(p.forward).setY(0).negate();
+    p.dashVel.copy(away.normalize()).multiplyScalar(GRAB.shoveDist / 0.3);
+    p.dashT = 0.3;
+    p.lift = 0;
+    $('#escape').classList.remove('show');
+    audio.play('breakFree');
+    this.status(n >= GRAB.kill - 1 ? "Broke free · one more grab and you're dead" : 'Broke free · the next grab is harder', 2600);
+  }
+
+  // hunter side: they got away
+  onEscaped() {
+    if (this.role !== 'hunter' || !this.grab) return;
+    this.release(true);
+  }
+
+  release(escaped) {
+    this.grab = null;
+    this.cd.grab = GRAB.cooldown;
+    if (escaped) {
+      // they shoved me: I stagger for a moment
+      this.stunnedUntil = Math.max(this.stunnedUntil, now() + GRAB.shoveMs);
+      this.shoved = true;
+      audio.play('breakFree');
+    }
+    this.renderHud();
+  }
+
+  // every frame of a grab (both screens): the seeker is pulled in front of the hunter and they
+  // look at each other; then it ends one way or the other
+  holdGrab(dt, rs, t) {
+    const g = this.grab, p = this.player, k = Math.min(1, dt * 10);
+    if (rs) {
+      if (this.role === 'seeker') {
+        const away = new THREE.Vector3(p.pos.x - rs.x, 0, p.pos.z - rs.z);
+        if (away.lengthSq() < 1e-4) away.set(-Math.sin(rs.yaw), 0, -Math.cos(rs.yaw));
+        away.normalize();
+        p.pos.x += (rs.x + away.x * GRAB.holdDist - p.pos.x) * k;
+        p.pos.z += (rs.z + away.z * GRAB.holdDist - p.pos.z) * k;
+        // the last grab lifts them off the ground
+        p.lift = g.kill ? THREE.MathUtils.smoothstep(t - g.start, 0, GRAB.killMs * 0.6) * 0.5 : 0;
+      }
+      const lookY = this.role === 'seeker' ? rs.y + HUNTER.eye : rs.y + 1.4 + (this.pose.lift * 0.5);
+      const flat = Math.max(0.3, Math.hypot(rs.x - p.pos.x, rs.z - p.pos.z));
+      p.yaw = turnTo(p.yaw, Math.atan2(-(rs.x - p.pos.x), -(rs.z - p.pos.z)), k);
+      p.pitch += (Math.atan2(lookY - this.engine.camera.position.y, flat) - p.pitch) * k;
+    }
+    if (this.role === 'seeker') {
+      if (!g.kill) {
+        g.progress = Math.max(0, g.progress - g.drain * dt);
+        // didn't get free in time: caught
+        if (t >= g.until) { this.send('caught', {}); this.finish('caught', false); }
+      } else if (t >= g.until + 2500) this.finish('caught', false); // (if his message never comes)
+    } else if (t >= g.until) {
+      if (g.kill) this.finish('caught', true);
+      else this.release(false);
+    }
+  }
+
+  setPrompt(html) {
+    if (html === this.promptHtml) return;
+    this.promptHtml = html;
+    const el = $('#prompt');
+    if (html) el.innerHTML = html;
+    el.classList.toggle('show', !!html);
   }
 
   // --- the other player's effects ---------------------------------------------------------
@@ -517,7 +706,8 @@ export class Match {
       case 'dart': this.launchDart(v3(d.p), v3(d.v), false); audio.play('dartFire', this.at(v3(d.p))); break;
       case 'flash': this.launchFlash(v3(d.p), v3(d.v), false); audio.play('throw', this.at(v3(d.p))); break;
       case 'dash': this.effects.wind(v3(d.p), d.d ? v3(d.d) : new THREE.Vector3(0, 0, -1)); audio.play('dash', this.at(v3(d.p))); break;
-      case 'eye': this.launchEye(v3(d.p), v3(d.d), false); audio.play('eye', this.at(v3(d.p))); break;
+      case 'eye': this.remoteEye = this.launchEye(v3(d.p), v3(d.d), false); audio.play('eye', this.at(v3(d.p))); break;
+      case 'eyestop': this.remoteEye?.stop(v3(d.p)); this.remoteEye = null; break; // stopped early: at the hunter's spot
       case 'tpcast':
         this.effects.tpWindup(v3(d.from), TELEPORT.castMs / 1000);
         this.effects.tpWindup(v3(d.to), TELEPORT.castMs / 1000);
@@ -545,8 +735,9 @@ export class Match {
       const state = el.querySelector('.state'), bar = el.querySelector('.cd');
       const left = this.cd[id], total = COOLDOWN[id];
       el.classList.toggle('cooling', left > 0);
-      el.classList.toggle('active', id === 'tp' && (this.aiming || !!this.tpCast));
-      state.textContent = id === 'tp' && this.tpCast ? 'casting' : left > 0 ? `${Math.ceil(left)}s` : id === 'tp' && this.aiming ? 'release' : 'ready';
+      el.classList.toggle('active', (id === 'tp' && (this.aiming || !!this.tpCast)) || (id === 'grab' && !!this.grab) || (id === 'eye' && !!this.eyeOut?.flying));
+      state.textContent = id === 'tp' && this.tpCast ? 'casting' : id === 'eye' && this.eyeOut?.flying ? 'stop' : left > 0 ? `${Math.ceil(left)}s` : id === 'tp' && this.aiming ? 'release'
+        : id === 'grab' ? (this.grab ? 'holding' : `${this.grabs} / ${GRAB.kill}`) : 'ready';
       bar.style.width = `${(left / total) * 100}%`;
     }
     if (this.role === 'seeker') {
@@ -564,7 +755,48 @@ export class Match {
     if (result === 'caught' && mine) this.send('caught', {});
     this.player.enabled = false;
     this.cancelAim();
-    this.onEnd(result);
+    $('#escape').classList.remove('show');
+    this.setPrompt(null);
+    this.record(this.remoteState(), 0, true);
+    this.onEnd(result, this.recap(result));
+  }
+
+  // --- recap -----------------------------------------------------------------------------------
+
+  // add both players' positions to their paths (4 times a second, or right now if `force`)
+  record(rs, dt, force = false) {
+    const mine = this.track[this.role], theirs = this.track[this.role === 'seeker' ? 'hunter' : 'seeker'];
+    const add = (list, x, z) => {
+      const last = list[list.length - 1];
+      // a jump (teleport, dash, a lag spike) starts a new stretch of line instead of drawing across the map
+      if (last && Math.hypot(last.x - x, last.z - z) > 6) list.push(null);
+      list.push({ x, z });
+    };
+    if (rs) {
+      // the closest call, on this screen's view of things
+      const d = Math.hypot(rs.x - this.player.pos.x, rs.z - this.player.pos.z);
+      if (d < this.closest.d) {
+        const me = { x: this.player.pos.x, z: this.player.pos.z }, them = { x: rs.x, z: rs.z };
+        Object.assign(this.closest, { d, t: now() - this.startedAt }, this.role === 'seeker' ? { seeker: me, hunter: them } : { seeker: them, hunter: me });
+      }
+    }
+    this.trackT -= dt;
+    if (this.trackT > 0 && !force) return;
+    this.trackT = 0.25;
+    add(mine, this.player.pos.x, this.player.pos.z);
+    if (rs) add(theirs, rs.x, rs.z);
+  }
+
+  recap(result) {
+    return {
+      result,
+      track: this.track,
+      closest: this.closest.d < Infinity ? this.closest : null,
+      pages: this.pages.map((p) => ({ x: p.pos.x, z: p.pos.z, taken: p.taken })),
+      found: this.found,
+      time: now() - this.startedAt,
+      stuns: this.stuns,
+    };
   }
 
   // where the other player is now (interpolated), or null before the first update
@@ -593,18 +825,22 @@ export class Match {
   // --- every frame ---------------------------------------------------------------------------
 
   update(dt, time) {
+    if (this.pausedAt) return;
     const { player, engine, flashlight } = this;
     const t = now();
     const film = engine.film.uniforms;
+    const rs = this.remoteState(); // the other player, now
+
+    if (this.grab && !this.over) this.holdGrab(dt, rs, t);
 
     // stun (hunter)
     if (this.role === 'hunter') {
       // a stun interrupts a teleport wind-up
       if (this.tpCast && this.stunned) { this.tpCast = null; this.renderHud(); }
       if (this.tpCast && now() >= this.tpCast.until) this.finishTeleport();
-      player.frozen = this.stunned || !!this.tpCast;
+      player.frozen = this.stunned || !!this.tpCast || !!this.grab;
       film.uTint.value += ((this.stunned ? 1 : 0) - film.uTint.value) * Math.min(1, dt * 8);
-    }
+    } else player.frozen = !!this.grab;
     player.update(dt);
 
     // cooldowns (hunter)
@@ -621,6 +857,7 @@ export class Match {
       if (fill) fill.style.width = `${(1 - Math.max(0, this.reloadUntil - t) / GUN.reloadMs) * 100}%`;
       if (t >= this.reloadUntil) { this.ammo = GUN.ammo; audio.play('ready'); cdChanged = true; }
     }
+    if (this.eyeOut && !this.eyeOut.flying) { this.eyeOut = null; cdChanged = true; }
     if (cdChanged) this.renderHud();
 
     // blinded by a flash: full white, fading out over the last 0.6 s
@@ -629,7 +866,7 @@ export class Match {
 
     // dash: a quick FOV punch
     this.fovKick = Math.max(0, this.fovKick - dt * 3);
-    const fov = this.saved.fov + this.fovKick * 12;
+    const fov = settings.fov + this.fovKick * 12; // (the setting can change from the pause screen)
     if (Math.abs(engine.camera.fov - fov) > 0.01) { engine.camera.fov = fov; engine.camera.updateProjectionMatrix(); }
 
     // send my position
@@ -646,12 +883,21 @@ export class Match {
     this.effects.update(dt, engine.camera);
 
     // the other player
-    const rs = this.remoteState();
     if (rs) {
       const r = this.remote;
       r.visible = true;
       r.position.set(rs.x, rs.y, rs.z);
       r.rotation.y = rs.yaw;
+      // walk cycle, at the speed they're really moving (a teleport's jump doesn't count)
+      const moved = this.lastRemote ? Math.hypot(rs.x - this.lastRemote.x, rs.z - this.lastRemote.z) / Math.max(dt, 1e-3) : 0;
+      this.lastRemote = { x: rs.x, z: rs.z };
+      this.remoteSpeed = (this.remoteSpeed ?? 0) + ((moved > 15 ? 0 : moved) - (this.remoteSpeed ?? 0)) * Math.min(1, dt * 8);
+      // grab poses: on my screen he reaches for me, or (hunter) they struggle / are lifted
+      const g = this.grab;
+      const want = this.role === 'seeker' ? { grab: g ? 1 : 0, struggle: 0, lift: 0 }
+        : { grab: 0, struggle: g && !g.kill ? 1 : 0, lift: g?.kill ? THREE.MathUtils.smoothstep(t - g.start, 0, GRAB.killMs * 0.6) : 0 };
+      for (const k in this.pose) this.pose[k] += (want[k] - this.pose[k]) * Math.min(1, dt * 10);
+      r.userData.animate?.(dt, this.remoteSpeed, time, this.pose);
       r.userData.xray.visible = t < this.revealUntil;
       r.userData.skin?.update(time); // the glow in the Classic's mouth
       if (this.role === 'seeker') setStunGlow(r, t < this.remoteStunUntil ? 0.6 + 0.4 * Math.sin(time * 14) : 0);
@@ -666,20 +912,48 @@ export class Match {
         // glare when the torch points at me
         const toMe = engine.camera.position.clone().sub(from).normalize();
         r.userData.glare.material.opacity = rs.fl ? Math.pow(Math.max(0, dir.dot(toMe)), 6) : 0;
-        // caught? (not while stunned)
-        if (!this.over && !this.stunned && Math.hypot(rs.x - player.pos.x, rs.z - player.pos.z) < HUNTER.catchDist) this.finish('caught', true);
       }
     }
+
+    if (this.role === 'hunter') {
+      // my own arms reach out while I hold them
+      this.armK = (this.armK ?? 0) + ((this.grab ? 1 : 0) - (this.armK ?? 0)) * Math.min(1, dt * 9);
+      this.hunterArms?.update(dt, engine.camera, this.armK, time);
+      this.setPrompt(this.canGrab(rs) ? `<b>${label('grab')}</b> Grab` : null);
+    }
+
+    if (this.role === 'seeker') this.updateDread(dt, rs);
+    if (!this.over) this.record(rs, dt);
 
     if (this.role === 'seeker') {
       this.viewmodel.lightOn = flashlight.on;
       this.viewmodel.update(dt, engine.camera, player);
       // the light is mounted under the pistol's barrel
       flashlight.update(dt, this.viewmodel.lensWorld(), player.forward, time);
-      $('#prompt').classList.toggle('show', !!this.lookedAtPage() && !this.over);
+      this.setPrompt(this.lookedAtPage() && !this.over && !this.grab ? `<b>${label('take')}</b> Take page` : null);
+      // held: the view shakes, harder each time they struggle; the bars show how it's going
+      const g = this.grab;
+      if (g && !this.over) {
+        this.jolt = Math.max(0, (this.jolt ?? 0) - dt * 6);
+        const sh = 0.008 + 0.03 * this.jolt + (g.kill ? 0.02 : 0);
+        engine.camera.position.x += (Math.random() - 0.5) * sh;
+        engine.camera.position.y += (Math.random() - 0.5) * sh;
+        if (!g.kill) {
+          $('#escape-fill').style.width = `${Math.min(1, g.progress / g.need) * 100}%`;
+          $('#escape-time').style.width = `${Math.max(0, (g.until - t) / (g.until - g.start)) * 100}%`;
+        }
+      }
       const st = $('#stamina-fill');
       st.style.width = `${(player.stamina / SEEKER.stamina) * 100}%`;
       st.parentElement.classList.toggle('show', player.stamina < SEEKER.stamina - 0.05);
+      st.parentElement.classList.toggle('winded', player.winded); // (the bar shows it can't be used yet)
+    }
+
+    // minimap: ten times a second is plenty
+    this.mapT -= dt;
+    if (this.mapT <= 0) {
+      this.mapT = 0.1;
+      this.minimap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw }, this.pages.filter((p) => p.taken).map((p) => p.pos));
     }
 
     // round timer in the top bar
@@ -691,7 +965,7 @@ export class Match {
 
     // status line: stunned / revealed
     const el = $('#status');
-    const sticky = this.role === 'hunter' && this.stunned ? `Stunned  ${((this.stunnedUntil - t) / 1000).toFixed(1)}`
+    const sticky = this.role === 'hunter' && this.stunned ? `${this.shoved ? 'Staggered' : 'Stunned'}  ${((this.stunnedUntil - t) / 1000).toFixed(1)}`
       : t < this.meRevealedUntil ? 'You are revealed' : null;
     if (sticky) {
       el.textContent = sticky;
@@ -703,11 +977,42 @@ export class Match {
     }
   }
 
+  // the hunter near (and worse, in sight): static on screen and a heartbeat that speeds up
+  updateDread(dt, rs) {
+    const film = this.engine.film.uniforms;
+    let target = 0, close = 0;
+    if (rs && !this.over) {
+      const d = Math.hypot(rs.x - this.player.pos.x, rs.z - this.player.pos.z);
+      close = 1 - THREE.MathUtils.smoothstep(d, DREAD.near, DREAD.far);
+      target = close * DREAD.static;
+      // looking at him with nothing in between
+      if (d < DREAD.seenDist) {
+        const eye = this.engine.camera.position, chest = new THREE.Vector3(rs.x, rs.y + 1.8, rs.z);
+        const facing = chest.clone().sub(eye).normalize().dot(this.player.forward);
+        if (facing > Math.cos(THREE.MathUtils.degToRad(30)) && !this.world.colliders.blocked(eye, chest)) {
+          target += DREAD.seen * (1 - d / DREAD.seenDist) * THREE.MathUtils.smoothstep(facing, 0.866, 0.97);
+        }
+      }
+    }
+    if (this.grab) { close = 1; target = Math.max(target, this.grab.kill ? 0.6 : 0.35); } // in his hands
+    this.dread += (target - this.dread) * Math.min(1, dt * 4);
+    audio.setDanger(Math.min(1, close * 1.1));
+    // (the teleport's own burst of static fades out on top of this)
+    film.uStatic.value = Math.max(film.uStatic.value, this.dread);
+
+    this.beatT -= dt;
+    if (close > 0.05 && this.beatT <= 0) {
+      audio.play('heart', null, 0.25 + close * 0.75);
+      this.beatT = THREE.MathUtils.lerp(DREAD.beatSlow, DREAD.beatFast, close);
+    }
+  }
+
   dispose() {
     this.off.forEach((f) => f());
     removeEventListener('keydown', this.onKey);
     removeEventListener('keyup', this.onKeyUp);
     removeEventListener('mousedown', this.onMouse);
+    removeEventListener('mouseup', this.onMouseUp);
     removeEventListener('contextmenu', this.onContext);
     for (const p of this.pages) {
       this.engine.scene.remove(p.mesh);
@@ -719,14 +1024,19 @@ export class Match {
     const film = this.engine.film.uniforms;
     film.uFlash.value = 0; film.uTint.value = 0; film.uStatic.value = 0;
     this.engine.hemi.intensity = this.saved.hemi;
+    this.engine.moon.intensity = this.saved.moon;
     film.uSaturation.value = this.saved.sat;
-    this.engine.camera.fov = this.saved.fov;
+    this.engine.camera.fov = settings.fov;
     this.engine.camera.updateProjectionMatrix();
     this.viewmodel.visible = false;
     this.player.enabled = false;
     this.player.frozen = false;
-    $('#prompt').classList.remove('show');
+    this.setPrompt(null);
     $('#status').classList.remove('show');
+    $('#escape').classList.remove('show');
+    this.hunterArms?.update(0, this.engine.camera, 0, 0);
+    this.player.lift = 0;
+    audio.setDanger(0);
     hud(false);
   }
 }

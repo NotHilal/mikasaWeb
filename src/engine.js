@@ -8,8 +8,9 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { buildSky } from './world/sky.js';
 import { settings } from './settings.js';
+import { LIGHT } from './config.js';
 
-export const FOG = new THREE.Color(0x0d1117);
+export const FOG = new THREE.Color(LIGHT.fog);
 // the graphics preset in use ('high' | 'low'), resolved from settings when the engine starts
 export let quality = 'high';
 
@@ -24,7 +25,7 @@ const FilmShader = {
     uStatic: { value: 0 },     // screen noise (0..1), for when the hunter is close/seen
     uFlash: { value: 0 },      // white-out from a flash (0..1)
     uTint: { value: 0 },       // red tint while stunned (0..1)
-    uLift: { value: new THREE.Vector3(0.006, 0.008, 0.014) }, // blue-ish shadows
+    uLift: { value: new THREE.Vector3(0.003, 0.004, 0.008) }, // blue-ish shadows (faint: the dark should stay dark)
   },
   vertexShader: /* glsl */`varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
@@ -77,12 +78,12 @@ export function createEngine(container) {
   scene.fog = new THREE.FogExp2(FOG, 0.05);
   scene.background = FOG;
 
-  const camera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, 0.05, 500);
+  const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeight, 0.05, 500);
   scene.add(camera);
 
   // moonlight: dim and blue, with shadows in a box that follows the camera
   const moonDir = new THREE.Vector3(-0.45, 0.75, -0.5).normalize();
-  const moon = new THREE.DirectionalLight(0x9bb0ff, 0.75);
+  const moon = new THREE.DirectionalLight(0x9bb0ff, LIGHT.moon);
   moon.castShadow = true;
   const shadowRes = quality === 'high' ? 2048 : 1024, shadowBox = 34;
   moon.shadow.mapSize.set(shadowRes, shadowRes);
@@ -91,7 +92,7 @@ export function createEngine(container) {
   moon.shadow.normalBias = 0.04;
   scene.add(moon, moon.target);
 
-  const hemi = new THREE.HemisphereLight(0x2b3c5c, 0x0d0a08, 1.0);
+  const hemi = new THREE.HemisphereLight(0x2b3c5c, 0x0d0a08, LIGHT.ambient);
   scene.add(hemi);
 
   const sky = buildSky(FOG, moonDir);
@@ -103,7 +104,7 @@ export function createEngine(container) {
   // first-person weapon: its own scene, drawn over the world after clearing depth so it
   // never pokes into trees
   const viewScene = new THREE.Scene();
-  viewScene.add(new THREE.HemisphereLight(0x3a4a66, 0x0d0a08, 1.4));
+  viewScene.add(new THREE.HemisphereLight(0x4a4852, 0x0d0a08, LIGHT.weapon));
   const viewPass = new RenderPass(viewScene, camera);
   viewPass.clear = false;
   viewPass.clearDepth = true;

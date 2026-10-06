@@ -7,8 +7,9 @@ import { treeKit, tube } from './trees.js';
 import { loadProps } from './props.js';
 import { buildLandmarks } from './landmarks.js';
 import { Chunked, makeMatrix } from './instancing.js';
-import { MAP, PAGES } from '../config.js';
+import { MAP, PAGES, PAGE_SPOTS } from '../config.js';
 import { quality } from '../engine.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // --- collision: circles in a spatial hash ------------------------------------
 // Each circle is a vertical cylinder up to height `top` (world y), so low rocks block
@@ -25,8 +26,9 @@ class Colliders {
         this.map.get(k).push({ x, z, r, top });
       }
   }
-  // push a circle (pos.x, pos.z, radius) out of everything it overlaps; mutates pos
-  resolve(pos, radius) {
+  // push a circle (pos.x, pos.z, radius) out of everything it overlaps; mutates pos.
+  // feet: the bottom of whoever's moving, so a jump clears things lower than that
+  resolve(pos, radius, feet = -Infinity) {
     const c = this.cell;
     const ix = Math.floor(pos.x / c), iz = Math.floor(pos.z / c);
     for (let dx = -1; dx <= 1; dx++)
@@ -34,6 +36,7 @@ class Colliders {
         const list = this.map.get(this.key(ix + dx, iz + dz));
         if (!list) continue;
         for (const o of list) {
+          if (o.top < feet) continue;
           const ox = pos.x - o.x, oz = pos.z - o.z;
           const d = Math.hypot(ox, oz), min = o.r + radius;
           if (d < min && d > 1e-5) { pos.x = o.x + (ox / d) * min; pos.z = o.z + (oz / d) * min; }
@@ -225,6 +228,48 @@ export async function buildWorld(scene, manager) {
   }
   logs.forEach((l, i) => add(new Chunked(l.geometry, l.material, logMats[i], { maxDist: 45 })));
 
+  // --- the edge of the play area: a ring of old fence posts with a sagging rope between them,
+  // just outside where you can walk, so the flashlight finds the limit before you bump into it
+  // (pale weathered wood, and a pale rag on some posts, to catch the torch; some spans of rope
+  // are missing; its own random stream, so nothing else moves)
+  {
+    const fr = rng(MAP.seed + 777);
+    const count = Math.round((2 * Math.PI * MAP.play) / 3.2), radius = MAP.play + 0.35;
+    const postGeo = new THREE.BoxGeometry(0.1, 1, 0.1);
+    postGeo.translate(0, 0.5, 0);
+    const wood = new THREE.MeshStandardMaterial({ color: 0x8a7a66, roughness: 0.95 });
+    const posts = new THREE.InstancedMesh(postGeo, wood, count);
+    const ragGeo = new THREE.PlaneGeometry(0.09, 0.42);
+    ragGeo.translate(0, -0.21, 0.056); // hangs down the post's outside face from its top
+    const rags = new THREE.InstancedMesh(ragGeo, new THREE.MeshStandardMaterial({ color: 0xd6d0c2, roughness: 1, side: THREE.DoubleSide }), count);
+    let rag = 0;
+    const tops = [], m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    for (let i = 0; i < count; i++) {
+      const a = ((i + fr.range(-0.2, 0.2)) / count) * Math.PI * 2;
+      const x = Math.cos(a) * radius, z = Math.sin(a) * radius, h = fr.range(1.0, 1.35);
+      q.setFromEuler(e.set(fr.range(-0.12, 0.12), -a, fr.range(-0.12, 0.12)));
+      m.compose(new THREE.Vector3(x, height.heightAt(x, z) - 0.1, z), q, new THREE.Vector3(1, h, 1));
+      posts.setMatrixAt(i, m);
+      tops.push(new THREE.Vector3(0, 0.88, 0).applyMatrix4(m));
+      if (fr() < 0.33) {
+        // a rag tied near the top, swinging a little off straight
+        const r = new THREE.Matrix4().compose(new THREE.Vector3(0, 0.95, 0), new THREE.Quaternion().setFromEuler(new THREE.Euler(fr.range(-0.2, 0.2), 0, fr.range(-0.25, 0.25))), new THREE.Vector3(1, 1 / h, 1));
+        rags.setMatrixAt(rag++, m.clone().multiply(r));
+      }
+    }
+    posts.castShadow = posts.receiveShadow = true;
+    rags.count = rag;
+    const spans = [];
+    for (let i = 0; i < count; i++) {
+      if (fr() < 0.12) continue; // a broken span
+      const a = tops[i], b = tops[(i + 1) % count];
+      const mid = a.clone().lerp(b, 0.5); mid.y -= fr.range(0.12, 0.28); // the rope sags
+      spans.push(new THREE.TubeGeometry(new THREE.QuadraticBezierCurve3(a, mid, b), 6, 0.02, 5));
+    }
+    const rope = new THREE.Mesh(mergeGeometries(spans), new THREE.MeshStandardMaterial({ color: 0x9a8a70, roughness: 1 }));
+    scene.add(posts, rags, rope);
+  }
+
   // --- pages
   const pageGeo = new THREE.PlaneGeometry(0.21, 0.29);
 
@@ -238,18 +283,50 @@ export async function buildWorld(scene, manager) {
       for (const u of updaters) u.update(camPos);
     },
 
-    // choose PAGES landmarks (and a spot on each), using a per-match seed (same on both clients)
-    pickPages(seed) {
+    // Choose where the round's pages go (see PAGE_SPOTS), from the round's seed so both screens
+    // agree: a few on landmarks, the rest on trees, spread out, away from `avoid` (the seeker's
+    // start). Returns [{ pos, face, n }]: where, which way the page faces, its number.
+    pickPages(seed, avoid = null) {
       const pr = rng(seed);
+      const chosen = [];
+      let apart = PAGE_SPOTS.apart;
+      const fits = (pos) => (!avoid || Math.hypot(pos.x - avoid.x, pos.z - avoid.z) > PAGE_SPOTS.fromSeeker)
+        && chosen.every((c) => Math.hypot(pos.x - c.pos.x, pos.z - c.pos.z) > apart);
+      // landmarks: in a shuffled order, the first that fit
       const order = sites.map((_, i) => i);
       for (let i = order.length - 1; i > 0; i--) { const j = pr.int(i + 1); [order[i], order[j]] = [order[j], order[i]]; }
-      return order.slice(0, PAGES).map((site, n) => ({ site, spot: pr.int(sites[site].spots.length), n: n + 1 }));
+      for (const si of order) {
+        if (chosen.length >= Math.min(PAGE_SPOTS.landmarks, PAGES)) break;
+        const spot = sites[si].spots[pr.int(sites[si].spots.length)];
+        if (fits(spot.pos)) chosen.push({ pos: spot.pos.clone(), face: spot.face });
+      }
+      // trees: a random trunk and side, if the page would face open ground; when a crowded map
+      // makes that hard, the spacing is relaxed a little at a time
+      const UP = new THREE.Vector3(0, 1, 0);
+      for (let tries = 0; chosen.length < PAGES && tries < 4000; tries++) {
+        if (tries && tries % 400 === 0) apart *= 0.85;
+        const t = trees[pr.int(trees.length)];
+        if (Math.hypot(t.x, t.z) > MAP.play - 6 || nearSite(t.x, t.z, 2)) continue;
+        const ground = height.heightAt(t.x, t.z);
+        const { c, r: rr } = kit.variants[t.variant].trunk(PAGE_SPOTS.height / t.scale);
+        const centre = c.multiplyScalar(t.scale).applyAxisAngle(UP, t.rot).add(new THREE.Vector3(t.x, ground, t.z));
+        const ang = pr() * Math.PI * 2, dir = new THREE.Vector3(Math.sin(ang), 0, Math.cos(ang));
+        const pos = centre.clone().addScaledVector(dir, rr * t.scale * 1.04 + 0.015);
+        if (!fits(pos)) continue;
+        // something to stand on in front of it, and nothing right in the way
+        const front = pos.clone().addScaledVector(dir, 2.6);
+        if (colliders.blocked(pos.clone().addScaledVector(dir, 0.35), front)) continue;
+        if (Math.abs(height.heightAt(front.x, front.z) - ground) > 1.2) continue;
+        chosen.push({ pos, face: ang });
+      }
+      // in a random order, so page 1 isn't always on a landmark
+      for (let i = chosen.length - 1; i > 0; i--) { const j = pr.int(i + 1); [chosen[i], chosen[j]] = [chosen[j], chosen[i]]; }
+      return chosen.map((c, i) => ({ ...c, n: i + 1 }));
     },
 
-    // pin page meshes to their landmarks; returns [{ mesh, pos, n }]
+    // pin page meshes where pickPages chose; returns [{ mesh, pos, n }]
     placePages(chosen) {
-      return chosen.map(({ site, spot, n }) => {
-        const { pos, face } = sites[site].spots[spot];
+      return chosen.map(({ pos, face, n }) => {
         // the paper glows very faintly, so a sweep of the flashlight catches it from further away
         const map = pageTexture(n);
         const mesh = new THREE.Mesh(pageGeo, new THREE.MeshStandardMaterial({

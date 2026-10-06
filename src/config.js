@@ -7,6 +7,15 @@ export const MAP = {
 };
 
 export const PAGES = 5;
+// Where pages go, different every round (from the round's seed, so the same on both screens):
+// a few on landmarks, the rest nailed to trees anywhere in the woods, spread out, facing open
+// ground, and not right where the seeker starts.
+export const PAGE_SPOTS = {
+  landmarks: 2,      // how many of the pages are on landmarks
+  apart: 28,         // metres between any two pages (relaxed if the forest can't fit them)
+  fromSeeker: 25,    // metres from the seeker's start
+  height: 1.45,      // on a tree: how high up the trunk
+};
 // Placeholder text for the 5 parts of the message (shown when a page is picked up).
 export const MESSAGE = ['Part one', 'Part two', 'Part three', 'Part four', 'Part five'];
 
@@ -16,13 +25,15 @@ export const SEEKER = {
   sprint: 5.4,
   stamina: 6,       // seconds of sprint
   staminaRegen: 0.6,// stamina seconds regained per second
+  recover: 0.35,    // after running it empty, sprinting comes back once the bar is this full
   reach: 2.2,       // how close a page must be to take it
+  jump: 5.7,        // take-off speed (m/s): about 0.9 m high
 };
 
 export const HUNTER = {
   eye: 2.45,
   walk: 3.9,
-  catchDist: 1.4,
+  jump: 4.8,        // about 0.65 m: he's tall, not agile
 };
 
 export const NET_HZ = 20; // position updates per second
@@ -49,4 +60,39 @@ export const DASH = { distance: 7, time: 0.2, cooldown: 12 };
 
 // Hunter
 export const TELEPORT = { range: 14, cooldown: 20, castMs: 1000 /* wind-up before he moves */, seekerView: 50 /* degrees */, seekerViewDist: 45 };
-export const EYE = { speed: 16, flight: 1.1, delay: 0.5, radius: 25, revealMs: 3000, cooldown: 40 };
+// eye: flies up to speed × flight metres (about 42 m); pressing Eye again while it flies stops it there
+export const EYE = { speed: 16, flight: 2.6, delay: 0.5, radius: 25, revealMs: 3000, cooldown: 40 };
+
+// The seeker's dread: screen static and a heartbeat as the hunter gets close (Slender-style).
+// Static starts at `far` metres and is strongest at `near`; looking right at him adds `seen`.
+export const DREAD = { far: 18, near: 3, static: 0.22, seen: 0.28, seenDist: 25, beatSlow: 1.05, beatFast: 0.42 };
+
+// The hunter's grab: get close, face the seeker and press Grab. Grabs 1 and 2 can be escaped by
+// mashing Break free: fill the bar (`presses`) before `time` runs out; it drains by `drain`
+// presses a second. Grab 2 is much harder. Grab number `kill` can't be escaped: caught.
+export const GRAB = {
+  range: 1.9,          // metres (centre to centre, on the ground)
+  angle: 70,           // degrees either side of where the hunter is looking
+  escape: [
+    { presses: 6, time: 4, drain: 0.5 },  // 1st grab: easy
+    { presses: 16, time: 4, drain: 2.5 }, // 2nd grab: mash hard (about 6 presses a second)
+  ],
+  kill: 3,
+  holdDist: 0.85,      // the seeker is pulled this close, in front of him
+  killMs: 1800,        // the last grab: how long he holds them up before it's over
+  shoveMs: 1500,       // after an escape the hunter staggers (can't move) this long...
+  shoveDist: 3.5,      // ...while the seeker is pushed this far away
+  cooldown: 5,         // seconds before he can grab again
+};
+
+// How dark the night is. Kept low so the seeker needs the flashlight to see much more than
+// shapes; the flashlight itself isn't affected. The hunter sees in the dark: his ambient light
+// is brighter than the seeker's, but still dim.
+export const LIGHT = {
+  ambient: 0.25,       // sky glow, everywhere (was 1.0)
+  moon: 0.12,          // moonlight, with its soft shadows (was 0.75)
+  fog: 0x06080b,       // the colour far things fade into: nearly black (was 0x0d1117)
+  hunterAmbient: 1.8,  // the hunter's night vision: sky glow... (was 2.2)
+  hunterMoon: 0.5,     // ...and moonlight (the seeker gets `moon`)
+  weapon: 1.3,         // light on the seeker's own pistol only (the world stays dark), before the torch's bounce
+};

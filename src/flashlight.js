@@ -84,7 +84,10 @@ export function createFlashlight(scene) {
   return {
     light,
     get on() { return on; },
-    set on(v) { on = v; light.visible = v; },
+    // Off means dark, not hidden: hiding a light changes how many lights the scene has, which
+    // makes every material recompile its shader (a freeze of most of a second). Its shadow
+    // stops updating while it's off, so off still saves that work.
+    set on(v) { on = v; light.intensity = v ? base : 0; light.shadow.autoUpdate = v; if (v) light.shadow.needsUpdate = true; },
     // place at `from` aiming along `dir`; the beam lags the view a little like a hand-held torch
     update(dt, from, dir, time, lag = true) {
       smoothDir.lerp(dir, lag ? Math.min(1, dt * 14) : 1).normalize();
@@ -93,7 +96,7 @@ export function createFlashlight(scene) {
       // rare tiny flickers
       if (Math.random() < dt * 0.15) flicker = 0.15;
       flicker = Math.max(0, flicker - dt);
-      light.intensity = base * (flicker > 0 ? 0.55 + Math.random() * 0.45 : 1);
+      light.intensity = on ? base * (flicker > 0 ? 0.55 + Math.random() * 0.45 : 1) : 0;
       const u = dustMat.uniforms;
       u.uOrigin.value.copy(from);
       u.uDir.value.copy(smoothDir);

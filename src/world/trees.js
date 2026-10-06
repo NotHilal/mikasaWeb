@@ -179,7 +179,9 @@ function buildVariant(seed, card) {
     cards.push(card.clone().applyMatrix4(m));
   }
 
-  return { bark: mergeGeometries(bark), needles: mergeGeometries(cards), radius: R, height: H };
+  // trunk(y): the trunk's centre and radius at height y (the tree's own space), for pinning pages
+  const trunk = (y) => ({ c: at(y), r: trunkR(y) * (1 + 0.9 * Math.exp(-(y + 0.3) * 2.2)) });
+  return { bark: mergeGeometries(bark), needles: mergeGeometries(cards), radius: R, height: H, trunk };
 }
 
 export function treeKit(loader) {

@@ -4,14 +4,19 @@ import { createEngine } from './engine.js';
 import { buildWorld } from './world/world.js';
 import { createFlashlight } from './flashlight.js';
 import { Player } from './player.js';
-import { createViewmodel } from './viewmodel.js';
+import { createViewmodel, createHunterArms } from './viewmodel.js';
 import { Effects } from './effects.js';
 import { loadIso } from './iso.js';
+import { loadSlender } from './slender.js';
+import { loadNocturnum } from './skins/nocturnum.js';
+import { hunterFigure, seekerFigure, addXray } from './figures.js';
 import { renderRolePortraits } from './portraits.js';
+import { drawRecap, recapStats } from './recap.js';
 import { Match } from './match.js';
 import { net } from './net.js';
 import { audio } from './audio.js';
 import { settings, saveSettings } from './settings.js';
+import { ACTIONS, DEFAULT_KEYS, bindIn, saveKeys, label, keyLabel, mouseCode } from './keys.js';
 import { $, show, screen, toast } from './ui.js';
 
 const engine = createEngine($('#view'));
@@ -24,21 +29,46 @@ const loaded = new Promise((res) => { manager.onLoad = res; });
 
 // Iso (the seeker's model) loads alongside the forest; if it fails, the seeker falls back to a simple figure
 const isoLoading = loadIso(manager).catch((e) => console.warn('Iso model failed to load', e));
+// Slenderman (the hunter's model) too; without it the hunter is a simple figure
+const slenderLoading = loadSlender(manager).catch((e) => console.warn('Slenderman model failed to load', e));
+// and the Classic (without it, a stand-in traced from the picture)
+const gunLoading = loadNocturnum(manager).catch((e) => console.warn('Classic model failed to load', e));
 const world = await buildWorld(engine.scene, manager);
-await isoLoading;
+await Promise.all([isoLoading, slenderLoading, gunLoading]);
 const flashlight = createFlashlight(engine.scene);
 const player = new Player(engine.camera, world, canvas);
 const viewmodel = createViewmodel(engine.viewScene);
+const hunterArms = createHunterArms(engine.viewScene);
 const effects = new Effects(engine.scene, world, () => engine.scale);
 // the page handwriting is drawn on canvases, so its font must be loaded first
 await Promise.all([loaded, document.fonts.load('64px "Caveat"'), document.fonts.ready]);
-// compile every shader once now, so the first frames don't stutter
-engine.renderer.compile(engine.scene, engine.camera);
-engine.renderer.compile(engine.viewScene, engine.camera);
+// Compile every shader once now, so nothing stalls later: what's in the world, plus what a round
+// adds (both characters and their x-ray copies, a page, the hunter's grabbing arms), drawn once
+// out of sight and taken away again.
+function prewarm() {
+  const extra = [hunterFigure(), seekerFigure()].map((f) => {
+    addXray(f);
+    f.userData.xray.visible = true;
+    f.position.set(0, -100, 0);
+    engine.scene.add(f);
+    return f;
+  });
+  const pages = world.placePages(world.pickPages(1));
+  hunterArms.update(0, engine.camera, 1, 0);
+  engine.renderer.compile(engine.scene, engine.camera);
+  engine.renderer.compile(engine.viewScene, engine.camera);
+  engine.render(0); // (and their shadows)
+  engine.scene.remove(...extra);
+  for (const p of pages) { engine.scene.remove(p.mesh); p.mesh.material.map.dispose(); p.mesh.material.dispose(); }
+  hunterArms.update(0, engine.camera, 0, 0);
+}
+prewarm();
 viewmodel.visible = false;
 
 // --- lobby state ----------------------------------------------------------------
-const lobby = { host: false, hostRole: 'seeker', partner: false };
+// ready: the guest has pressed Ready (the host can only start once they have). The host keeps
+// the real value and sends it with the lobby; the guest's copy follows it.
+const lobby = { host: false, hostRole: 'seeker', partner: false, ready: false };
 let match = null;
 const myRole = () => (lobby.host ? lobby.hostRole : lobby.hostRole === 'seeker' ? 'hunter' : 'seeker');
 
@@ -49,29 +79,64 @@ function renderLobby() {
     const mine = role === myRole();
     el.classList.toggle('mine', mine);
     el.disabled = !lobby.host;
-    el.querySelector('.role-who').textContent = mine ? 'You' : lobby.partner ? 'Your friend' : '';
+    // the guest's card says when they're ready
+    const who = el.querySelector('.role-who');
+    const guestCard = mine !== lobby.host && (mine || lobby.partner);
+    who.textContent = (mine ? 'You' : lobby.partner ? 'Your friend' : '') + (guestCard && lobby.ready ? ' · Ready' : '');
+    who.classList.toggle('ready', guestCard && lobby.ready);
+    el.classList.toggle('ready-card', guestCard && lobby.ready);
   }
   $('#role-note').textContent = lobby.host ? 'Click a role to switch. Your friend gets the other one.' : 'The host picks the roles.';
-  $('#start-game').disabled = !(lobby.host && lobby.partner);
+  $('#start-game').disabled = !(lobby.host && lobby.partner && lobby.ready);
+  $('#start-game').classList.toggle('go', !$('#start-game').disabled);
+  // the big ready banner (once there are two of us)
+  const banner = $('#ready-banner');
+  banner.classList.toggle('show', lobby.partner);
+  banner.classList.toggle('on', lobby.ready);
+  $('#ready-banner-text').textContent = lobby.host
+    ? (lobby.ready ? '✓ Your friend is ready' : 'Waiting for your friend to ready up')
+    : (lobby.ready ? "✓ You're ready" : 'Press Ready when you are set');
   $('#start-game').style.display = lobby.host ? '' : 'none';
+  const ready = $('#ready-game');
+  ready.style.display = lobby.host ? 'none' : '';
+  ready.disabled = !lobby.partner;
+  ready.classList.toggle('on', lobby.ready);
+  ready.textContent = lobby.ready ? 'Ready ✓' : 'Ready';
+  $('#lobby-status').style.display = lobby.partner ? 'none' : ''; // (the banner says it then)
   $('#lobby-status').textContent = !lobby.partner
-    ? 'Waiting for the second player… Send them the code or the invite link.'
-    : lobby.host ? 'Your friend is here. Press Start when you are ready.' : 'Connected. Waiting for the host to start.';
+    ? (lobby.host ? 'Waiting for the second player… Send them the code or the invite link.' : 'Waiting for the host…')
+    : lobby.host
+      ? (lobby.ready ? 'Your friend is ready. Lock in to start.' : 'Your friend is here. Waiting for them to press Ready.')
+      : (lobby.ready ? "You're ready. Waiting for the host to start." : 'Connected. Press Ready when you are set.');
 }
 
-function sendLobby() { net.send('lobby', { hostRole: lobby.hostRole }); }
+function sendLobby() { net.send('lobby', { hostRole: lobby.hostRole, ready: lobby.ready }); }
 
-net.on('hi', () => {
-  if (!lobby.host) return;
-  lobby.partner = true;
-  sendLobby();
+// the guest says whether they're ready
+net.on('ready', ({ ready }) => {
+  if (!lobby.host || match) return;
+  if (ready && !lobby.ready) audio.play('ready', null, 3); // (the big banner shows it)
+  lobby.ready = !!ready;
   if (screen() === 'lobby') renderLobby();
-  if (!match) toast('A player joined');
 });
-net.on('lobby', ({ hostRole }) => {
+
+// 'hi' comes from a page that just opened (or reloaded), so it has no round running:
+// if we're in one, that round is gone for them, and we both go back to the lobby
+net.on('hi', () => {
+  const was = lobby.partner;
+  lobby.partner = true;
+  if (match) { endMatch(); show('lobby'); toast('The other player reloaded. Back to the lobby'); }
+  if (lobby.host) lobby.ready = false; // a page that just opened hasn't pressed Ready
+  if (lobby.host) sendLobby();
+  if (screen() === 'lobby') renderLobby();
+});
+net.on('lobby', ({ hostRole, ready }) => {
   if (lobby.host) return;
+  // the host only sends this from the lobby, so they've left the round (a reload)
+  if (match) { endMatch(); show('lobby'); toast('The host reloaded. Back to the lobby'); }
   lobby.partner = true;
   lobby.hostRole = hostRole;
+  lobby.ready = !!ready;
   if (screen() === 'lobby') renderLobby();
 });
 net.on('start', ({ seed, hostRole }) => {
@@ -91,7 +156,82 @@ net.on('bye', () => {
     show('menu');
   }
 });
-net.on('to-lobby', () => { if (match) { endMatch(); show('lobby'); renderLobby(); } });
+// after a round, both players vote to go back to the lobby (1/2, 2/2); both votes and it happens
+const vote = { mine: false, theirs: false };
+function renderVote() {
+  const n = (vote.mine ? 1 : 0) + (vote.theirs ? 1 : 0);
+  const btn = $('#end-lobby');
+  btn.textContent = `Back to lobby ${n}/2`;
+  btn.classList.toggle('voted', vote.mine);
+  btn.classList.toggle('asked', vote.theirs && !vote.mine); // they're waiting on me
+  $('#end-vote-note').textContent = vote.mine && !vote.theirs ? 'Waiting for your friend…'
+    : vote.theirs && !vote.mine ? 'Your friend wants a rematch' : '';
+}
+function checkVote() {
+  renderVote();
+  if (vote.mine && vote.theirs && match) { endMatch(); show('lobby'); renderLobby(); }
+}
+net.on('vote', ({ on }) => { if (!match) return; vote.theirs = !!on; checkVote(); });
+
+// --- dropped connections: the round pauses for both players until everyone's back ------
+const WAIT_MS = 60000; // give up on a dropped player after this long
+const conn = { up: true, peer: false };
+let waitTick = 0;
+
+net.on('link', ({ up }) => { conn.up = up; checkConnection(); });
+net.on('peer', ({ here }) => {
+  const was = conn.peer;
+  conn.peer = here;
+  if (!match) {
+    if (here) {
+      // say hello again (after either of us reconnected), so the lobby is in sync
+      if (lobby.host) sendLobby(); else net.send('hi', {});
+    } else if (was && lobby.partner) {
+      lobby.partner = false;
+      lobby.ready = false;
+      toast(lobby.host ? 'Your friend disconnected' : 'The host disconnected');
+      if (screen() === 'lobby') renderLobby();
+    }
+  }
+  checkConnection();
+});
+
+function checkConnection() {
+  if (!match || match.over) return;
+  const lost = net.online && (!conn.up || !conn.peer); // (the ?localnet test transport has no relay to tell us)
+  if (lost && !match.pausedAt) {
+    match.setPaused(true);
+    show('waiting');
+    document.exitPointerLock();
+    clearInterval(waitTick);
+    waitTick = setInterval(renderWaiting, 250);
+    renderWaiting();
+  } else if (!lost && match.pausedAt) {
+    clearInterval(waitTick);
+    match.setPaused(false);
+    show('click-to-play');
+    toast('Everyone is back. Round resumed');
+  }
+}
+
+function renderWaiting() {
+  if (!match?.pausedAt) { clearInterval(waitTick); return; }
+  const left = Math.max(0, WAIT_MS - (performance.now() - match.pausedAt));
+  $('#waiting-title').textContent = conn.up ? 'Player disconnected' : 'Connection lost';
+  $('#waiting-note').textContent = (conn.up ? 'Waiting for the other player to reconnect' : 'Reconnecting to the game server')
+    + ` · ${Math.ceil(left / 1000)}s`;
+  if (left > 0) return;
+  // they're not coming back
+  clearInterval(waitTick);
+  if (!conn.up) { leaveToMenu(); toast('Lost connection to the game server', 5000); }
+  else if (lobby.host) { endMatch(); lobby.partner = false; show('lobby'); renderLobby(); toast("Your friend didn't come back", 5000); }
+  else { leaveToMenu(); toast("The host didn't come back", 5000); }
+}
+
+// the host's room code, kept for this tab, so a reload rejoins as the host
+const HOST_KEY = 'woods-host';
+const hostRoom = () => { try { return sessionStorage.getItem(HOST_KEY); } catch { return null; } };
+const setHostRoom = (code) => { try { code ? sessionStorage.setItem(HOST_KEY, code) : sessionStorage.removeItem(HOST_KEY); } catch {} };
 
 async function createGame() {
   try {
@@ -99,6 +239,7 @@ async function createGame() {
     show('lobby');
     $('#lobby-status').textContent = 'Creating room…';
     await net.createRoom();
+    setHostRoom(net.room);
     history.replaceState(null, '', `?room=${net.room}`);
     renderLobby();
   } catch (e) {
@@ -107,18 +248,19 @@ async function createGame() {
   }
 }
 
-async function joinGame(code) {
+async function joinGame(code, asHost = false) {
   code = code.trim().toUpperCase();
   if (!/^[A-Z]{4}$/.test(code)) { $('#join-error').textContent = 'Codes are 4 letters.'; return; }
   $('#join-error').textContent = '';
   try {
-    lobby.host = false; lobby.partner = false;
+    lobby.host = asHost; lobby.partner = false;
     $('#join-go').disabled = true;
     await net.joinRoom(code);
     net.send('hi', {});
     show('lobby');
     renderLobby();
   } catch (e) {
+    if (asHost) setHostRoom(null);
     show('join');
     $('#join-code').value = code;
     $('#join-error').textContent = e.message;
@@ -130,6 +272,7 @@ async function joinGame(code) {
 function leaveToMenu() {
   if (match) endMatch();
   net.leave();
+  setHostRoom(null);
   lobby.partner = false;
   history.replaceState(null, '', location.pathname);
   show('menu');
@@ -138,20 +281,25 @@ function leaveToMenu() {
 // --- matches -------------------------------------------------------------------
 function startMatch(seed) {
   if (match) match.dispose();
-  match = new Match({ engine, world, player, flashlight, viewmodel, effects }, { seed, role: myRole() }, (result) => {
+  vote.mine = vote.theirs = false;
+  lobby.ready = false; // back in the lobby afterwards, the guest readies up again
+  match = new Match({ engine, world, player, flashlight, viewmodel, hunterArms, effects }, { seed, role: myRole() }, (result, recap) => {
     document.exitPointerLock();
     const won = (result === 'pages') === (myRole() === 'seeker');
     $('#end-title').textContent = won ? 'Victory' : 'Defeat';
     $('#end-sub').textContent = result === 'pages' ? 'All 5 pages found' : 'The seeker was caught';
     $('#end').classList.toggle('win', won);
     $('#end').classList.toggle('lose', !won);
-    $('#end-lobby').style.display = lobby.host ? '' : 'none';
-    setTimeout(() => show('end'), 600);
+    renderVote();
+    $('#recap-stats').innerHTML = recapStats(recap, myRole()).map(([k, v, sub]) =>
+      `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`).join('');
+    setTimeout(() => { show('end'); drawRecap($('#recap-map'), world, recap); }, 600);
   });
   show('click-to-play');
 }
 
 function endMatch() {
+  clearInterval(waitTick);
   match?.dispose();
   match = null;
   document.exitPointerLock();
@@ -170,20 +318,71 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('pointerdown', () => audio.start(), { once: true });
 $('#join-go').onclick = () => joinGame($('#join-code').value);
+
+// a room code from pasted text: the code itself, or an invite link (…?room=ABCD)
+function codeFrom(text) {
+  const m = String(text).match(/[?&]room=([a-z]{4})\b/i) || String(text).trim().match(/^([a-z]{4})$/i) || String(text).match(/\b([a-z]{4})\b/i);
+  return m ? m[1].toUpperCase() : null;
+}
+function pasteCode(text) {
+  const code = codeFrom(text);
+  if (!code) { $('#join-error').textContent = 'No room code in what you copied.'; return; }
+  $('#join-code').value = code;
+  joinGame(code);
+}
+$('#join-paste').onclick = async () => {
+  try {
+    pasteCode(await navigator.clipboard.readText());
+  } catch {
+    // reading the clipboard is blocked (a page opened over the home network, or permission refused)
+    $('#join-code').focus();
+    $('#join-error').textContent = 'Press Ctrl+V to paste.';
+  }
+};
+// Ctrl+V into the box: take the code out of a pasted link too (the box only fits 4 letters)
+$('#join-code').addEventListener('paste', (e) => {
+  e.preventDefault();
+  pasteCode(e.clipboardData.getData('text'));
+});
 $('#join-code').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinGame($('#join-code').value); });
+// copy to the clipboard; pages opened over http on a home network (not localhost) can't use
+// the clipboard API, so fall back to the old way
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;opacity:0';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch {}
+  ta.remove();
+  return ok;
+}
+$('#copy-code').onclick = async () => {
+  if (!net.room) { toast('The room is still being created'); return; }
+  toast(await copyText(net.room) ? `Code ${net.room} copied` : `The code is ${net.room}`, 4000);
+};
 $('#copy-link').onclick = async () => {
+  if (!net.room) { toast('The room is still being created'); return; }
   const link = `${location.origin}${location.pathname}?room=${net.room}`;
-  try { await navigator.clipboard.writeText(link); toast('Invite link copied'); } catch { toast(link, 6000); }
+  if (await copyText(link)) toast('Invite link copied'); else toast(link, 6000);
 };
 document.querySelectorAll('.role').forEach((el) => {
   el.onclick = () => {
     if (!lobby.host) return;
-    // clicking the other card swaps roles
+    // clicking the other card swaps roles; the guest has to ready up again for their new one
+    if (lobby.hostRole !== el.dataset.role) lobby.ready = false;
     lobby.hostRole = el.dataset.role;
     sendLobby();
     renderLobby();
   };
 });
+$('#ready-game').onclick = () => {
+  lobby.ready = !lobby.ready;
+  net.send('ready', { ready: lobby.ready });
+  renderLobby();
+};
 $('#start-game').onclick = () => {
   const seed = Math.floor(Math.random() * 1e9);
   net.send('start', { seed, hostRole: lobby.hostRole });
@@ -191,31 +390,197 @@ $('#start-game').onclick = () => {
 };
 $('#leave-lobby').onclick = leaveToMenu;
 $('#pause-leave').onclick = leaveToMenu;
+$('#waiting-leave').onclick = leaveToMenu;
 $('#end-menu').onclick = leaveToMenu;
-$('#end-lobby').onclick = () => { net.send('to-lobby', {}); endMatch(); show('lobby'); renderLobby(); };
+$('#end-lobby').onclick = () => {
+  vote.mine = !vote.mine; // (click again to take it back)
+  net.send('vote', { on: vote.mine });
+  checkVote();
+};
 
 // pointer lock: click to play, Esc pauses
 $('#click-to-play').onclick = () => canvas.requestPointerLock();
 $('#resume').onclick = () => canvas.requestPointerLock();
 document.addEventListener('pointerlockchange', () => {
-  if (!match || match.over) return;
-  if (document.pointerLockElement === canvas) show(null);
-  else show('pause');
+  if (!match || match.over || match.pausedAt) return;
+  // drop focus from the pause slider, so arrow keys in game don't change the sensitivity
+  if (document.pointerLockElement === canvas) { document.activeElement?.blur(); show(null); }
+  // lost again right after Esc resumed it: that's the browser, not the player, so just ask for a click
+  else if (performance.now() - escResumedAt < 600) show('click-to-play');
+  else { show('pause'); pausedAt = performance.now(); escDownOnPause = false; }
 });
 
 // settings
+// sensitivity and field of view have sliders in Settings and on the pause screen; keep them in step
+const SLIDERS = {
+  sensitivity: (v) => v.toFixed(2),
+  fov: (v) => `${v}°`,
+  steps: (v) => `${Math.round(v * 100)}%`,
+  ambience: (v) => `${Math.round(v * 100)}%`,
+};
+function renderSliders() {
+  for (const el of document.querySelectorAll('input[data-setting]')) {
+    const key = el.dataset.setting;
+    el.value = settings[key];
+    el.nextElementSibling.textContent = SLIDERS[key](settings[key]);
+  }
+}
 function openSettings() {
   $('#set-quality').value = settings.quality;
   $('#set-skin').value = settings.skin;
-  $('#set-sens').value = settings.sensitivity;
   $('#set-vol').value = settings.volume;
+  renderSliders();
   show('settings');
 }
 $('#set-quality').onchange = (e) => { settings.quality = e.target.value; saveSettings(); };
 $('#set-skin').onchange = (e) => { settings.skin = e.target.value; saveSettings(); viewmodel.setSkin(settings.skin); };
-$('#set-sens').oninput = (e) => { settings.sensitivity = +e.target.value; saveSettings(); };
+document.querySelectorAll('input[data-setting]').forEach((el) => {
+  el.oninput = () => {
+    settings[el.dataset.setting] = +el.value;
+    saveSettings();
+    renderSliders();
+    if (el.dataset.setting === 'fov') { engine.camera.fov = settings.fov; engine.camera.updateProjectionMatrix(); }
+    if (el.dataset.setting === 'ambience') audio.setAmbience(settings.ambience);
+  };
+});
+renderSliders();
 $('#set-vol').oninput = (e) => { settings.volume = +e.target.value; audio.setVolume(settings.volume); saveSettings(); };
 $('#settings-back').onclick = () => show('menu');
+
+// --- controls: remap keys ----------------------------------------------------------------
+// Changes are made to a draft, and only take effect when saved (leaving asks first).
+let controlsFrom = 'settings', listening = null; // listening: the action waiting for a key
+let justBound = false; // a mouse button was just bound: its release mustn't start listening again
+let draft = {};
+const dirty = () => ACTIONS.some(([id]) => draft[id] !== settings.keys[id]);
+function renderControls() {
+  let html = '', group = '';
+  for (const [id, name, g] of ACTIONS) {
+    if (g !== group) { html += `<h3>${g}</h3>`; group = g; }
+    html += `<div class="bind"><span>${name}</span><button data-bind="${id}" class="${listening === id ? 'listening' : ''}">${listening === id ? 'Press a key' : keyLabel(draft[id])}</button></div>`;
+  }
+  $('#binds').innerHTML = html;
+  $('#controls-save').disabled = !dirty();
+}
+function openControls() {
+  controlsFrom = screen();
+  listening = null;
+  draft = { ...settings.keys };
+  $('#confirm').classList.remove('show');
+  renderControls();
+  show('controls');
+}
+function saveControls() {
+  saveKeys(draft);
+  renderControls();
+  renderKeyHints();
+  toast('Controls saved');
+}
+// leave Controls, asking first if there's something unsaved
+function closeControls(force = false) {
+  listening = null;
+  if (!force && dirty()) { renderControls(); $('#confirm').classList.add('show'); return; }
+  $('#confirm').classList.remove('show');
+  show(controlsFrom === 'pause' ? 'pause' : 'settings');
+}
+// key labels shown around the menus follow the bindings
+function renderKeyHints() {
+  const move = ['forward', 'left', 'back', 'right'].map(label);
+  const moveText = move.every((k) => k.length === 1) ? move.join('') : move.join(' ');
+  $('#footer-hint').innerHTML = [[moveText, 'move'], [label('sprint'), 'sprint'], [label('jump'), 'jump'], [label('shoot'), 'shoot'],
+    [`${label('dart')} ${label('flash')} ${label('dash')}`, 'abilities'], [label('take'), 'take page'], [label('light'), 'light'], [label('inspect'), 'inspect']]
+    .map(([k, what]) => `<span><b>${k}</b> ${what}</span>`).join('');
+  for (const el of document.querySelectorAll('[data-kit]')) el.innerHTML = el.dataset.kit.split(' ').map((id) => `<i>${label(id)}</i>`).join('');
+}
+document.querySelectorAll('[data-controls]').forEach((el) => { el.onclick = openControls; });
+// start listening on mouse *up*, so the click that picks an action isn't taken as its new button
+$('#binds').addEventListener('mouseup', (e) => {
+  const id = e.target.closest('[data-bind]')?.dataset.bind;
+  if (justBound) { justBound = false; return; }
+  if (!id || e.button !== 0 || listening) return;
+  setTimeout(() => { listening = id; renderControls(); });
+});
+// The mouse side buttons can be bound, but browsers use them for Back / Forward. They can arrive
+// as mouse buttons 3 / 4, or, with some mouse software, as the keyboard keys BrowserBack /
+// BrowserForward. Cancelling the event stops the page change in some browsers; for the others, a
+// spare history entry takes the "back" that comes right after a side button, and we step forward
+// onto it again. A real Back (toolbar, Alt+Left) still leaves the page.
+// (Registered before the binding listeners below, which stop events from going further.)
+const SIDE_KEYS = new Set(['BrowserBack', 'BrowserForward']);
+let sideButtonAt = -1e9;
+for (const type of ['mousedown', 'mouseup', 'auxclick']) {
+  addEventListener(type, (e) => {
+    if (e.button !== 3 && e.button !== 4) return;
+    e.preventDefault();
+    sideButtonAt = performance.now();
+  }, true);
+}
+addEventListener('keydown', (e) => {
+  if (!SIDE_KEYS.has(e.code)) return;
+  e.preventDefault();
+  sideButtonAt = performance.now();
+}, true);
+history.pushState({ woods: true }, '', location.href);
+addEventListener('popstate', () => {
+  if (performance.now() - sideButtonAt < 1500) history.pushState({ woods: true }, '', location.href);
+  else history.back();
+});
+
+// the next key or mouse button pressed goes to the action that's listening (Esc is kept for pausing).
+// The Controls screen also shows the last input it saw, to tell what a mouse really sends.
+function capture(e, code, seen) {
+  if (screen() !== 'controls') return;
+  $('#last-input').textContent = `Last input: ${seen}`;
+  if (!listening) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  if (code !== 'Escape') bindIn(draft, listening, code);
+  justBound = code.startsWith('Mouse');
+  listening = null;
+  renderControls();
+}
+addEventListener('keydown', (e) => capture(e, e.code, `key ${e.code}`), true);
+addEventListener('mousedown', (e) => capture(e, mouseCode(e.button), `mouse button ${e.button}`), true);
+addEventListener('contextmenu', (e) => { if (screen() === 'controls') e.preventDefault(); });
+addEventListener('mouseup', () => setTimeout(() => { justBound = false; })); // (after the list's own mouseup has seen it)
+$('#controls-reset').onclick = () => { draft = { ...DEFAULT_KEYS }; listening = null; renderControls(); };
+$('#controls-save').onclick = saveControls;
+$('#controls-back').onclick = () => closeControls();
+$('#confirm-save').onclick = () => { saveControls(); closeControls(true); };
+$('#confirm-discard').onclick = () => closeControls(true);
+$('#confirm-cancel').onclick = () => $('#confirm').classList.remove('show');
+renderKeyHints();
+
+// --- Esc: back out of the menu that's open --------------------------------------------------
+// (While the round is running, Esc is the browser's: it frees the mouse, which opens the pause
+// menu. These are the presses that come after, with the mouse already free.)
+let pausedAt = 0, escResumedAt = -1e9, escDownOnPause = false;
+function resume() {
+  escResumedAt = performance.now();
+  // Browsers may refuse to take the mouse again from an Esc press (it doesn't count as the
+  // player interacting); then "click to play" does it with the next click.
+  try {
+    const req = canvas.requestPointerLock();
+    req?.catch?.(() => { if (screen() === 'pause') show('click-to-play'); });
+  } catch { show('click-to-play'); }
+}
+document.addEventListener('pointerlockerror', () => { if (match && screen() === 'pause') show('click-to-play'); });
+addEventListener('keydown', (e) => {
+  if (e.code !== 'Escape' || e.repeat) return;
+  const at = screen();
+  if (at === 'controls') {
+    if ($('#confirm').classList.contains('show')) $('#confirm').classList.remove('show'); // Esc = Cancel
+    else closeControls();
+  } else if (at === 'settings' || at === 'join') show('menu');
+  // the pause menu resumes when Esc is *released*: taking the mouse back while the key is still
+  // down lets the browser read that same press as "free the mouse", which paused again at once
+  else if (at === 'pause' && performance.now() - pausedAt > 300) escDownOnPause = true;
+});
+addEventListener('keyup', (e) => {
+  if (e.code !== 'Escape' || !escDownOnPause) return;
+  escDownOnPause = false;
+  if (screen() === 'pause') resume();
+});
 
 // --- menu camera: a slow walk through the woods with the torch on ----------------
 const menuCam = { t: 0 };
@@ -249,7 +614,7 @@ frame();
 
 // open the menu (or straight into the join flow from an invite link)
 const invite = new URLSearchParams(location.search).get('room');
-if (invite) joinGame(invite);
+if (invite) joinGame(invite, invite.toUpperCase() === hostRoom());
 else show('menu');
 
 // draw the characters onto the role cards (after the menu is up, so it doesn't delay loading)

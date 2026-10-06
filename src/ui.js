@@ -2,9 +2,12 @@
 export const $ = (sel) => document.querySelector(sel);
 
 let current = null;
+// screens that cover the round: the in-game HUD (abilities, ammo, …) hides behind them
+const COVERING = new Set(['pause', 'controls', 'waiting']);
 export function show(id) {
   document.querySelectorAll('.screen.show').forEach((s) => { if (s.id !== 'hud') s.classList.remove('show'); });
   if (id) $(`#${id}`).classList.add('show');
+  $('#ui').classList.toggle('covered', COVERING.has(id));
   current = id;
 }
 export const screen = () => current;

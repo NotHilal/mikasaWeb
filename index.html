@@ -35,10 +35,7 @@
             <button data-go="settings">Settings</button>
           </nav>
         </div>
-        <div class="footer-hint">
-          <span><b>WASD</b> move</span><span><b>Shift</b> sprint</span><span><b>Click</b> shoot</span>
-          <span><b>C Q E</b> abilities</span><span><b>F</b> take page</span><span><b>T</b> light</span><span><b>Y</b> inspect</span>
-        </div>
+        <div id="footer-hint" class="footer-hint"></div>
       </section>
 
       <!-- join -->
@@ -50,6 +47,7 @@
           <p id="join-error" class="error"></p>
           <div class="btn-row">
             <button id="join-go" class="btn primary">Join</button>
+            <button id="join-paste" class="btn">Paste</button>
             <button data-go="menu" class="btn">Back</button>
           </div>
         </div>
@@ -66,7 +64,10 @@
           <div class="code-card">
             <div class="label">Room code</div>
             <div id="lobby-code" class="code">----</div>
-            <button id="copy-link" class="btn small">Copy invite link</button>
+            <div class="btn-row end">
+              <button id="copy-code" class="btn small primary">Copy code</button>
+              <button id="copy-link" class="btn small">Copy link</button>
+            </div>
           </div>
         </div>
 
@@ -76,24 +77,26 @@
             <span class="role-tag-line">Role · Initiator</span>
             <span class="role-name">Seeker</span>
             <span class="role-desc">Find all 5 pages. Classic: 3 stun rounds, reloads itself, headshots stun longer. Recon, Flash and Dash on cooldowns.</span>
-            <span class="role-kit"><i>C</i><i>Q</i><i>E</i></span>
+            <span class="role-kit" data-kit="dart flash dash"></span>
             <span class="role-who"></span>
           </button>
           <button class="role" data-role="hunter">
             <span class="role-art hunter-art"></span>
             <span class="role-tag-line">Role · Controller</span>
             <span class="role-name">Hunter</span>
-            <span class="role-desc">Sees in the dark. Teleports and throws a watching eye. Catch the seeker before the last page.</span>
-            <span class="role-kit"><i>Q</i><i>E</i></span>
+            <span class="role-desc">Sees in the dark. Teleports and throws a watching eye. Grab the seeker three times before the last page: they can break free twice.</span>
+            <span class="role-kit" data-kit="teleport eye grab"></span>
             <span class="role-who"></span>
           </button>
         </div>
 
         <div class="select-foot">
+          <div id="ready-banner" class="ready-banner"><i class="dot"></i><span id="ready-banner-text"></span></div>
           <p id="lobby-status" class="status-line"></p>
           <div class="btn-row">
             <button id="leave-lobby" class="btn">Leave</button>
             <button id="start-game" class="btn lockin" disabled>Lock in</button>
+            <button id="ready-game" class="btn lockin ready" disabled>Ready</button>
           </div>
         </div>
       </section>
@@ -110,14 +113,55 @@
             <select id="set-skin"><option value="red">Nocturnum · Red</option><option value="blue">Nocturnum · Blue</option><option value="black">Nocturnum · Black</option><option value="yellow">Nocturnum · Yellow</option></select>
           </label>
           <label class="setting">Mouse sensitivity
-            <input id="set-sens" type="range" min="0.2" max="3" step="0.05" />
+            <span class="range-ctl"><input id="set-sens" data-setting="sensitivity" type="range" min="0.2" max="3" step="0.05" /><output class="range-val"></output></span>
+          </label>
+          <label class="setting">Field of view
+            <span class="range-ctl"><input id="set-fov" data-setting="fov" type="range" min="55" max="95" step="1" /><output class="range-val"></output></span>
           </label>
           <label class="setting">Volume
             <input id="set-vol" type="range" min="0" max="1" step="0.05" />
           </label>
+          <label class="setting">Ambience
+            <span class="range-ctl"><input id="set-amb" data-setting="ambience" type="range" min="0" max="1" step="0.05" /><output class="range-val"></output></span>
+          </label>
+          <label class="setting">Footsteps
+            <span class="range-ctl"><input id="set-steps" data-setting="steps" type="range" min="0" max="1" step="0.05" /><output class="range-val"></output></span>
+          </label>
+          <div class="setting">Keys
+            <button class="btn small" data-controls>Controls</button>
+          </div>
           <p class="note">Graphics changes apply after reloading the page.</p>
           <div class="btn-row">
             <button id="settings-back" class="btn">Back</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- key remapping -->
+      <section id="controls" class="screen">
+        <div class="menu-col panel controls-panel">
+          <div class="eyebrow">Options</div>
+          <h2 class="heading">Controls</h2>
+          <p class="note">Click an action, then press a key or click a mouse button for it (Esc cancels).</p>
+          <div id="binds" class="binds"></div>
+          <p id="last-input" class="note last-input">Last input: –</p>
+          <div class="btn-row">
+            <button id="controls-save" class="btn primary" disabled>Save</button>
+            <button id="controls-back" class="btn">Back</button>
+            <button id="controls-reset" class="btn">Reset to defaults</button>
+          </div>
+        </div>
+        <!-- leaving with unsaved changes -->
+        <div id="confirm" class="confirm">
+          <div class="confirm-box">
+            <div class="eyebrow">Controls</div>
+            <h2 class="heading">Save changes?</h2>
+            <p class="note">You changed some keys and haven't saved them.</p>
+            <div class="btn-row">
+              <button id="confirm-save" class="btn primary">Save</button>
+              <button id="confirm-discard" class="btn">Don't save</button>
+              <button id="confirm-cancel" class="btn">Cancel</button>
+            </div>
           </div>
         </div>
       </section>
@@ -131,10 +175,17 @@
           <div class="tb-time" id="tb-time">0:00</div>
           <div class="tb-side hunter"><small>of</small><span>5</span></div>
         </div>
-        <div id="prompt" class="prompt"><b>F</b> Take page</div>
+        <div id="prompt" class="prompt"></div>
+        <div id="escape" class="escape">
+          <div class="escape-title">Grabbed</div>
+          <div class="escape-hint">Mash <b id="escape-key">Space</b> to break free</div>
+          <div class="escape-bar"><i id="escape-fill"></i></div>
+          <div class="escape-time"><i id="escape-time"></i></div>
+        </div>
         <div id="pages" class="pages"></div>
         <div id="page-text" class="page-text"></div>
         <div id="role-tag" class="role-tag"></div>
+        <canvas id="minimap" class="minimap"></canvas>
         <div class="stamina"><i id="stamina-fill"></i></div>
         <div id="hitmarker" class="hitmarker"></div>
         <div id="status" class="status"></div>
@@ -155,10 +206,29 @@
           <div class="eyebrow">Game running</div>
           <h2 class="heading">Paused</h2>
           <p class="note">The round keeps going for the other player.</p>
+          <label class="setting">Mouse sensitivity
+            <span class="range-ctl"><input id="pause-sens" data-setting="sensitivity" type="range" min="0.2" max="3" step="0.05" /><output class="range-val"></output></span>
+          </label>
+          <label class="setting">Field of view
+            <span class="range-ctl"><input id="pause-fov" data-setting="fov" type="range" min="55" max="95" step="1" /><output class="range-val"></output></span>
+          </label>
+          <div class="setting">Keys
+            <button class="btn small" data-controls>Controls</button>
+          </div>
           <div class="btn-row">
             <button id="resume" class="btn primary">Resume</button>
             <button id="pause-leave" class="btn">Leave game</button>
           </div>
+        </div>
+      </section>
+
+      <!-- a player dropped: the round is frozen until they're back -->
+      <section id="waiting" class="screen">
+        <div class="center-msg">
+          <div class="eyebrow">Round paused</div>
+          <div class="big" id="waiting-title">Player disconnected</div>
+          <div class="note" id="waiting-note"></div>
+          <div class="btn-row center"><button id="waiting-leave" class="btn">Leave game</button></div>
         </div>
       </section>
 
@@ -167,11 +237,19 @@
           <div class="end-line"></div>
           <div id="end-title" class="end-title"></div>
           <div id="end-sub" class="end-sub"></div>
+          <div class="recap">
+            <canvas id="recap-map" class="recap-map"></canvas>
+            <div class="recap-side">
+              <div id="recap-stats" class="recap-stats"></div>
+              <div class="recap-legend"><span><i class="sw seeker"></i>Seeker</span><span><i class="sw hunter"></i>Hunter</span><span><i class="sw close"></i>Closest call</span><span><i class="sw page"></i>Page</span></div>
+            </div>
+          </div>
           <div class="end-line"></div>
           <div class="btn-row center">
-            <button id="end-lobby" class="btn primary">Back to lobby</button>
+            <button id="end-lobby" class="btn primary">Back to lobby 0/2</button>
             <button id="end-menu" class="btn">Main menu</button>
           </div>
+          <p id="end-vote-note" class="end-vote-note"></p>
         </div>
       </section>
 

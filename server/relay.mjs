@@ -7,6 +7,8 @@
 //   { $: 'create' }                  → { $: 'created', room }
 //   { $: 'join', room, rejoin? }     → { $: 'joined', room } | { $: 'error', msg }
 //     (rejoin: sent after a reconnect; recreates the room if the server restarted)
+// Server → client: { $: 'peer', here } when the other player connects or drops, so a
+// round can pause while someone is gone. 'joined' also says how many others are in: { peers }.
 // Everything else is forwarded as-is to the other socket(s) in the room.
 // Rooms survive for a while after everyone drops, so players can reconnect
 // with the same code after a network blip.
@@ -33,8 +35,10 @@ function newCode() {
 function enter(ws, code) {
   const room = rooms.get(code);
   // replace a stale socket of the same client (reconnect before the old one timed out)
-  for (const other of room.sockets) if (other.clientId && other.clientId === ws.clientId) { room.sockets.delete(other); other.terminate(); }
+  // (it's the same player, so the others aren't told it left)
+  for (const other of room.sockets) if (other.clientId && other.clientId === ws.clientId) { room.sockets.delete(other); other.replaced = true; other.terminate(); }
   if (room.sockets.size >= MAX_PER_ROOM) return false;
+  for (const other of room.sockets) send(other, { $: 'peer', here: true });
   room.sockets.add(ws);
   room.emptySince = null;
   ws.room = code;
@@ -45,6 +49,7 @@ function leave(ws) {
   const room = ws.room && rooms.get(ws.room);
   if (!room) return;
   room.sockets.delete(ws);
+  if (!ws.replaced) for (const other of room.sockets) send(other, { $: 'peer', here: false });
   if (!room.sockets.size) room.emptySince = Date.now();
 }
 
@@ -81,7 +86,7 @@ wss.on('connection', (ws, req) => {
         }
         if (ws.room !== code) leave(ws);
         if (!enter(ws, code)) return send(ws, { $: 'error', msg: `Room ${code} is full` });
-        send(ws, { $: 'joined', room: code });
+        send(ws, { $: 'joined', room: code, peers: rooms.get(code).sockets.size - 1 });
       }
       return;
     }

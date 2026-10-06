@@ -317,13 +317,20 @@ export class Effects {
     }
     g.position.copy(origin);
     const p = { pos: origin.clone(), vel: dir.clone().normalize().multiplyScalar(speed) };
-    let flying = true, scanned = false;
+    let flying = true, scanned = false, stopNow = false;
+    // returned to the caller: is it still flying, and stop it early (optionally at a given spot,
+    // so the other screen's copy stops exactly where the thrower's did)
+    const handle = {
+      get flying() { return flying; },
+      get pos() { return p.pos; },
+      stop(at) { if (!flying) return; if (at) p.pos.copy(at); stopNow = true; },
+    };
     this.add(g, {
       tick(dt, it) {
         tendrils.forEach((h, i) => { h.rotation.y = Math.sin(it.age * 6 + i) * 0.35; });
         if (Math.random() < 0.6) this.smoke.emit({ pos: p.pos.clone().add(randDir().multiplyScalar(0.12)), vel: randDir().multiplyScalar(0.2).add(p.vel.clone().multiplyScalar(-0.05)), life: 1.1, size: 0.25, size1: 0.8, color: 0x140a1e, color1: 0x0a0610, alpha: 0.7, drag: 1 });
         if (flying) {
-          if (this.step(p, dt, 0) || it.age > flight) { flying = false; it.stopAt = it.age; }
+          if (stopNow || this.step(p, dt, 0) || it.age > flight) { flying = false; it.stopAt = it.age; }
           g.position.copy(p.pos);
           g.lookAt(p.pos.clone().add(p.vel));
           g.rotateY(Math.PI);
@@ -351,6 +358,7 @@ export class Effects {
         }
       },
     });
+    return handle;
   }
 
   // --- Omen-style shadow step ---------------------------------------------------------

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Woods</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&family=Cormorant+Garamond:wght@300;500&family=Inter:wght@300;400;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="view"></div>
+
+    <div id="ui">
+      <!-- loading -->
+      <section id="loading" class="screen show">
+        <div class="load-box">
+          <div class="load-label">Loading</div>
+          <div class="load-bar"><i id="load-fill"></i></div>
+        </div>
+      </section>
+
+      <!-- main menu -->
+      <section id="menu" class="screen">
+        <div class="menu-col">
+          <h1 class="title">The Woods</h1>
+          <p class="tagline">Two players. One hunts. One searches.</p>
+          <nav class="menu-list">
+            <button data-go="create">Create game</button>
+            <button data-go="join">Join game</button>
+            <button data-go="settings">Settings</button>
+          </nav>
+        </div>
+        <div class="footer-hint">WASD move · Shift sprint · F flashlight · E take · Esc pause</div>
+      </section>
+
+      <!-- join -->
+      <section id="join" class="screen">
+        <div class="menu-col">
+          <h2 class="heading">Join game</h2>
+          <p class="sub">Enter the 4-letter code your friend sent you.</p>
+          <input id="join-code" maxlength="4" autocomplete="off" spellcheck="false" placeholder="ABCD" />
+          <p id="join-error" class="error"></p>
+          <nav class="menu-list">
+            <button id="join-go">Join</button>
+            <button data-go="menu">Back</button>
+          </nav>
+        </div>
+      </section>
+
+      <!-- lobby -->
+      <section id="lobby" class="screen">
+        <div class="menu-col wide">
+          <h2 class="heading">Lobby</h2>
+          <div class="code-row">
+            <div>
+              <div class="label">Room code</div>
+              <div id="lobby-code" class="code">----</div>
+            </div>
+            <button id="copy-link" class="ghost">Copy invite link</button>
+          </div>
+
+          <div class="label">Roles <span id="role-note" class="muted"></span></div>
+          <div class="roles">
+            <button class="role" data-role="seeker">
+              <span class="role-name">Seeker</span>
+              <span class="role-desc">Find all 5 pages in the dark with only a flashlight.</span>
+              <span class="role-who"></span>
+            </button>
+            <button class="role" data-role="hunter">
+              <span class="role-name">Hunter</span>
+              <span class="role-desc">Tall and silent. Catch the seeker before they find the last page.</span>
+              <span class="role-who"></span>
+            </button>
+          </div>
+
+          <p id="lobby-status" class="sub"></p>
+          <nav class="menu-list row">
+            <button id="start-game" disabled>Start</button>
+            <button id="leave-lobby">Leave</button>
+          </nav>
+        </div>
+      </section>
+
+      <!-- settings -->
+      <section id="settings" class="screen">
+        <div class="menu-col">
+          <h2 class="heading">Settings</h2>
+          <label class="setting">Graphics
+            <select id="set-quality"><option value="auto">Auto</option><option value="high">High</option><option value="low">Low</option></select>
+          </label>
+          <label class="setting">Mouse sensitivity
+            <input id="set-sens" type="range" min="0.2" max="3" step="0.05" />
+          </label>
+          <label class="setting">Volume
+            <input id="set-vol" type="range" min="0" max="1" step="0.05" />
+          </label>
+          <p class="sub muted">Graphics changes apply after reloading the page.</p>
+          <nav class="menu-list">
+            <button id="settings-back">Back</button>
+          </nav>
+        </div>
+      </section>
+
+      <!-- in game -->
+      <section id="hud" class="screen">
+        <div class="crosshair"></div>
+        <div id="prompt" class="prompt">E &nbsp;Take page</div>
+        <div id="pages" class="pages"></div>
+        <div id="page-text" class="page-text"></div>
+        <div id="role-tag" class="role-tag"></div>
+        <div class="stamina"><i id="stamina-fill"></i></div>
+      </section>
+
+      <section id="click-to-play" class="screen">
+        <div class="center-msg">
+          <div class="big">Click to play</div>
+          <div class="sub">Esc to pause</div>
+        </div>
+      </section>
+
+      <section id="pause" class="screen">
+        <div class="menu-col">
+          <h2 class="heading">Paused</h2>
+          <p class="sub muted">The game keeps running for the other player.</p>
+          <nav class="menu-list">
+            <button id="resume">Resume</button>
+            <button id="pause-leave">Leave game</button>
+          </nav>
+        </div>
+      </section>
+
+      <section id="end" class="screen">
+        <div class="center-msg">
+          <div id="end-title" class="big"></div>
+          <div id="end-sub" class="sub"></div>
+          <nav class="menu-list row center">
+            <button id="end-lobby">Back to lobby</button>
+            <button id="end-menu">Main menu</button>
+          </nav>
+        </div>
+      </section>
+
+      <div id="toast" class="toast"></div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

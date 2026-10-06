@@ -66,11 +66,144 @@ try {
   });
   await sleep(500);
   await guest.screenshot({ path: 'shots/duo-page.png' });
-  await guest.keyboard.press('KeyE');
+  await guest.evaluate(() => window.__game.match.tryTake()); // F in game (keys need pointer lock, which headless can't get)
   await sleep(800);
   const found = await Promise.all([host, guest].map((p) => p.evaluate(() => window.__game.match.found)));
   check(found[0] === 1 && found[1] === 1, `page taken on both screens (host ${found[0]}, guest ${found[1]})`);
   await guest.screenshot({ path: 'shots/duo-page-taken.png' });
+
+  // --- abilities ---
+  const ms = () => Date.now();
+  // face a point: sets yaw/pitch on that client
+  const face = (page, toRemote = true) => page.evaluate((toRemote) => {
+    const g = window.__game, p = g.player, s = g.match.remoteState();
+    const tx = s.x, tz = s.z, ty = s.y + 1.4;
+    p.yaw = Math.atan2(-(tx - p.pos.x), -(tz - p.pos.z));
+    p.pitch = Math.atan2(ty - g.engine.camera.position.y, Math.hypot(tx - p.pos.x, tz - p.pos.z));
+    if (!toRemote) p.yaw += Math.PI;
+  }, toRemote);
+  // turn the seeker away from the page's tree, then put the hunter 8 m in front of them
+  const sp = await guest.evaluate(() => {
+    const g = window.__game, p = g.player, eye = g.engine.camera.position;
+    // pick a direction with a clear 9 m line (no trunk in the way)
+    for (let i = 0; i < 32; i++) {
+      p.yaw += Math.PI / 16;
+      const f = p.forward;
+      const end = eye.clone().addScaledVector(f, 9); end.y = g.world.heightAt(end.x, end.z) + 1.5;
+      if (!g.world.colliders.blocked(eye, end)) break;
+    }
+    p.pitch = 0; const f = p.forward; return { x: p.pos.x, z: p.pos.z, fx: f.x, fz: f.z }; });
+  await host.evaluate((sp) => {
+    const g = window.__game, len = Math.hypot(sp.fx, sp.fz);
+    let x = sp.x + (sp.fx / len) * 8, z = sp.z + (sp.fz / len) * 8;
+    const pos = { x, z };
+    g.world.colliders.resolve(pos, 0.5);
+    g.player.pos.set(pos.x, g.world.heightAt(pos.x, pos.z), pos.z);
+    g.player.eyeY = g.player.pos.y + 2.45;
+  }, sp);
+  await sleep(800);
+  await face(guest);
+  await face(host);
+  await sleep(300);
+
+  // pistol: hit → hunter stunned; a second hit while stunned is resisted
+  await guest.evaluate(() => window.__game.match.shoot());
+  await sleep(700);
+  const stun1 = await host.evaluate(() => ({ stunned: window.__game.match.stunned, until: window.__game.match.stunnedUntil }));
+  const seenStun = await guest.evaluate(() => window.__game.match.remoteStunUntil > performance.now());
+  check(stun1.stunned && seenStun, `pistol hit stuns the hunter (hunter stunned: ${stun1.stunned}, seeker sees it: ${seenStun})`);
+  await guest.screenshot({ path: 'shots/duo-stun-seeker.png' });
+  await host.screenshot({ path: 'shots/duo-stun-hunter.png' });
+  await guest.evaluate(() => window.__game.match.shoot());
+  await sleep(600);
+  const stun2 = await host.evaluate(() => window.__game.match.stunnedUntil);
+  const ammo = await guest.evaluate(() => window.__game.match.ammo);
+  check(stun2 === stun1.until && ammo === 1, `second hit while stunned is resisted (ammo left ${ammo})`);
+
+  // flash: the hunter (looking at the seeker) is blinded, the thrower isn't.
+  // From 3 m, so the curving throw can't clip a trunk on the way (that blocks it, as it should).
+  await host.evaluate((sp) => {
+    const g = window.__game, len = Math.hypot(sp.fx, sp.fz);
+    const pos = { x: sp.x + (sp.fx / len) * 3, z: sp.z + (sp.fz / len) * 3 };
+    g.player.pos.set(pos.x, g.world.heightAt(pos.x, pos.z), pos.z);
+    g.player.eyeY = g.player.pos.y + 2.45;
+  }, sp);
+  await sleep(600);
+  await face(guest);
+  await face(host);
+  await guest.evaluate(() => window.__game.match.useFlash());
+  await sleep(1100);
+  const blind = await Promise.all([host, guest].map((p) => p.evaluate(() => window.__game.match.blindUntil > 0)));
+  check(blind[0] && !blind[1], `flash blinds the hunter only (hunter ${blind[0]}, seeker ${blind[1]})`);
+  await host.screenshot({ path: 'shots/duo-flashed-hunter.png' });
+
+  // recon dart: reveals the hunter on the seeker's screen, warns the hunter
+  await guest.evaluate(() => { const g = window.__game; g.player.pitch = -0.15; g.match.useDart(); });
+  await sleep(2200);
+  const dart = await guest.evaluate(() => window.__game.match.revealUntil > 0);
+  const warned = await host.evaluate(() => window.__game.match.meRevealedUntil > 0);
+  check(dart && warned, `recon dart reveals the hunter (seeker sees: ${dart}, hunter warned: ${warned})`);
+
+  // teleport: once the stun is over, with the seeker looking away
+  await host.waitForFunction(() => !window.__game.match.stunned, { timeout: 8000 });
+  await face(guest, false);
+  await sleep(400);
+  const before = await guest.evaluate(() => { const s = window.__game.match.remoteState(); return [s.x, s.z]; });
+  const casting = await host.evaluate(() => {
+    const g = window.__game, m = g.match;
+    g.player.yaw += Math.PI; g.player.pitch = -0.3; // aim at the ground away from the seeker
+    m.startAim();
+    m.releaseAim();
+    return !!m.tpCast && m.tpCount === 0; // winding up, not gone yet
+  });
+  await sleep(1700); // 1 s wind-up, then the move reaches the seeker
+  const tp = await host.evaluate(() => ({ count: window.__game.match.tpCount, cd: window.__game.match.cd.tp }));
+  const after = await guest.evaluate(() => { const s = window.__game.match.remoteState(); return [s.x, s.z]; });
+  const moved = Math.hypot(after[0] - before[0], after[1] - before[1]);
+  check(casting && tp.count === 1 && tp.cd > 0 && moved > 3, `hunter teleported ${moved.toFixed(1)} m after a 1 s wind-up (cooldown ${tp.cd.toFixed(0)} s)`);
+
+  // eye: reveals the seeker to the hunter
+  await face(host);
+  await host.evaluate(() => window.__game.match.useEye());
+  await sleep(3000);
+  const eye = await host.evaluate(() => window.__game.match.revealUntil > 0);
+  const eyeWarn = await guest.evaluate(() => window.__game.match.meRevealedUntil > 0);
+  check(eye && eyeWarn, `eye reveals the seeker (hunter sees: ${eye}, seeker warned: ${eyeWarn})`);
+  await host.screenshot({ path: 'shots/duo-eye-hunter.png' });
+
+  // abilities come back: the seeker's flash is on cooldown, not used up
+  const flashCd = await guest.evaluate(() => window.__game.match.cd.flash);
+  check(flashCd > 0 && flashCd <= 20, `seeker flash is on a cooldown (${flashCd.toFixed(0)} s left)`);
+
+  // headshot: once the hunter can be stunned again, the last round to the head stuns 4 s,
+  // and the empty gun reloads by itself
+  await host.waitForFunction(() => performance.now() > window.__game.match.immuneUntil + 100, { timeout: 15000 });
+  await guest.evaluate((sp) => { // the seeker back where the clear line was found, facing it
+    const g = window.__game;
+    g.player.pos.set(sp.x, g.world.heightAt(sp.x, sp.z), sp.z);
+    g.player.eyeY = g.player.pos.y + 1.65;
+  }, sp);
+  await host.evaluate((sp) => { // the hunter 4 m in front, on that clear line
+    const g = window.__game, len = Math.hypot(sp.fx, sp.fz);
+    const pos = { x: sp.x + (sp.fx / len) * 4, z: sp.z + (sp.fz / len) * 4 };
+    g.player.pos.set(pos.x, g.world.heightAt(pos.x, pos.z), pos.z);
+    g.player.eyeY = g.player.pos.y + 2.45;
+  }, sp);
+  await sleep(700);
+  await face(guest);
+  await guest.evaluate(() => {
+    const g = window.__game, p = g.player, s = g.match.remoteState();
+    // aim at his head instead of his body
+    p.pitch = Math.atan2(s.y + 2.5 - g.engine.camera.position.y, Math.hypot(s.x - p.pos.x, s.z - p.pos.z));
+    g.match.shoot();
+  });
+  await sleep(700);
+  const headStun = await host.evaluate(() => Math.round(window.__game.match.stunnedUntil - performance.now()));
+  check(headStun > 2500 && headStun <= 4000, `headshot stuns longer (${(headStun / 1000).toFixed(1)} s left)`);
+  const empty = await guest.evaluate(() => window.__game.match.ammo);
+  await sleep(6000);
+  const refilled = await guest.evaluate(() => window.__game.match.ammo);
+  check(empty === 0 && refilled === 3, `empty gun reloads by itself (0 → ${refilled})`);
 
   // hunter walks onto the seeker
   await sleep(500);
@@ -80,7 +213,7 @@ try {
   });
   await sleep(1000);
   const ends = await Promise.all([host, guest].map((p) => p.$eval('#end-title', (e) => e.textContent)));
-  check(ends[0] === 'You win' && ends[1] === 'You lose', `end screens: host "${ends[0]}", guest "${ends[1]}"`);
+  check(ends[0] === 'Victory' && ends[1] === 'Defeat', `end screens: host "${ends[0]}", guest "${ends[1]}"`);
   await host.screenshot({ path: 'shots/duo-end-host.png' });
 
   // back to the lobby

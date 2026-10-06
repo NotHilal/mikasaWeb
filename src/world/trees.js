@@ -149,7 +149,7 @@ function buildVariant(seed, card) {
     bark.push(branchTube(start, dir, r.range(0.25, 0.9), r.range(0.015, 0.035), r));
   }
 
-  // living crown: whorls of branches, each with needle cards
+  // living crown: whorls of branches, each with a needle card
   const cards = [];
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
   for (let y = crownStart; y < H - 0.6; y += r.range(0.55, 0.85)) {

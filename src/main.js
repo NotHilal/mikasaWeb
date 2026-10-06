@@ -4,6 +4,10 @@ import { createEngine } from './engine.js';
 import { buildWorld } from './world/world.js';
 import { createFlashlight } from './flashlight.js';
 import { Player } from './player.js';
+import { createViewmodel } from './viewmodel.js';
+import { Effects } from './effects.js';
+import { loadIso } from './iso.js';
+import { renderRolePortraits } from './portraits.js';
 import { Match } from './match.js';
 import { net } from './net.js';
 import { audio } from './audio.js';
@@ -18,13 +22,20 @@ const manager = new THREE.LoadingManager();
 manager.onProgress = (_, done, total) => { $('#load-fill').style.width = `${(done / total) * 100}%`; };
 const loaded = new Promise((res) => { manager.onLoad = res; });
 
+// Iso (the seeker's model) loads alongside the forest; if it fails, the seeker falls back to a simple figure
+const isoLoading = loadIso(manager).catch((e) => console.warn('Iso model failed to load', e));
 const world = await buildWorld(engine.scene, manager);
+await isoLoading;
 const flashlight = createFlashlight(engine.scene);
 const player = new Player(engine.camera, world, canvas);
+const viewmodel = createViewmodel(engine.viewScene);
+const effects = new Effects(engine.scene, world, () => engine.scale);
 // the page handwriting is drawn on canvases, so its font must be loaded first
 await Promise.all([loaded, document.fonts.load('64px "Caveat"'), document.fonts.ready]);
 // compile every shader once now, so the first frames don't stutter
 engine.renderer.compile(engine.scene, engine.camera);
+engine.renderer.compile(engine.viewScene, engine.camera);
+viewmodel.visible = false;
 
 // --- lobby state ----------------------------------------------------------------
 const lobby = { host: false, hostRole: 'seeker', partner: false };
@@ -40,7 +51,7 @@ function renderLobby() {
     el.disabled = !lobby.host;
     el.querySelector('.role-who').textContent = mine ? 'You' : lobby.partner ? 'Your friend' : '';
   }
-  $('#role-note').textContent = lobby.host ? '· click to switch' : '· the host picks';
+  $('#role-note').textContent = lobby.host ? 'Click a role to switch. Your friend gets the other one.' : 'The host picks the roles.';
   $('#start-game').disabled = !(lobby.host && lobby.partner);
   $('#start-game').style.display = lobby.host ? '' : 'none';
   $('#lobby-status').textContent = !lobby.partner
@@ -127,11 +138,13 @@ function leaveToMenu() {
 // --- matches -------------------------------------------------------------------
 function startMatch(seed) {
   if (match) match.dispose();
-  match = new Match({ engine, world, player, flashlight }, { seed, role: myRole() }, (result) => {
+  match = new Match({ engine, world, player, flashlight, viewmodel, effects }, { seed, role: myRole() }, (result) => {
     document.exitPointerLock();
     const won = (result === 'pages') === (myRole() === 'seeker');
-    $('#end-title').textContent = won ? 'You win' : 'You lose';
-    $('#end-sub').textContent = result === 'pages' ? 'All the pages were found.' : 'The seeker was caught.';
+    $('#end-title').textContent = won ? 'Victory' : 'Defeat';
+    $('#end-sub').textContent = result === 'pages' ? 'All 5 pages found' : 'The seeker was caught';
+    $('#end').classList.toggle('win', won);
+    $('#end').classList.toggle('lose', !won);
     $('#end-lobby').style.display = lobby.host ? '' : 'none';
     setTimeout(() => show('end'), 600);
   });
@@ -193,11 +206,13 @@ document.addEventListener('pointerlockchange', () => {
 // settings
 function openSettings() {
   $('#set-quality').value = settings.quality;
+  $('#set-skin').value = settings.skin;
   $('#set-sens').value = settings.sensitivity;
   $('#set-vol').value = settings.volume;
   show('settings');
 }
 $('#set-quality').onchange = (e) => { settings.quality = e.target.value; saveSettings(); };
+$('#set-skin').onchange = (e) => { settings.skin = e.target.value; saveSettings(); viewmodel.setSkin(settings.skin); };
 $('#set-sens').oninput = (e) => { settings.sensitivity = +e.target.value; saveSettings(); };
 $('#set-vol').oninput = (e) => { settings.volume = +e.target.value; audio.setVolume(settings.volume); saveSettings(); };
 $('#settings-back').onclick = () => show('menu');
@@ -237,5 +252,8 @@ const invite = new URLSearchParams(location.search).get('room');
 if (invite) joinGame(invite);
 else show('menu');
 
+// draw the characters onto the role cards (after the menu is up, so it doesn't delay loading)
+setTimeout(renderRolePortraits, 300);
+
 // for headless tests
-window.__game = { engine, world, player, net, lobby, flashlight, get match() { return match; }, startMatch };
+window.__game = { THREE, engine, world, player, net, lobby, flashlight, viewmodel, effects, get match() { return match; }, startMatch };

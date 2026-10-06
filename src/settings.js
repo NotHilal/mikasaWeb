@@ -1,7 +1,8 @@
 // Player settings, remembered in this browser.
 const KEY = 'woods-settings';
 // quality: 'auto' picks low on integrated graphics and high otherwise (see engine.js)
-const defaults = { quality: 'auto', sensitivity: 1, volume: 0.8 };
+// skin: colour variant of the Classic (see skins/nocturnum.js)
+const defaults = { quality: 'auto', sensitivity: 1, volume: 0.8, skin: 'red' };
 
 function load() {
   try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch { return { ...defaults }; }

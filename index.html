@@ -7,7 +7,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500&family=Cormorant+Garamond:wght@300;500&family=Inter:wght@300;400;600&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=Bebas+Neue&family=Caveat:wght@500&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -17,79 +17,97 @@
       <!-- loading -->
       <section id="loading" class="screen show">
         <div class="load-box">
-          <div class="load-label">Loading</div>
+          <div class="load-title">The Woods</div>
           <div class="load-bar"><i id="load-fill"></i></div>
+          <div class="load-label">Loading</div>
         </div>
       </section>
 
       <!-- main menu -->
       <section id="menu" class="screen">
         <div class="menu-col">
+          <div class="brand"><span class="brand-mark"></span>Custom game</div>
           <h1 class="title">The Woods</h1>
-          <p class="tagline">Two players. One hunts. One searches.</p>
-          <nav class="menu-list">
+          <p class="tagline">1v1 · One hunts · One searches</p>
+          <nav class="menu-list big">
             <button data-go="create">Create game</button>
             <button data-go="join">Join game</button>
             <button data-go="settings">Settings</button>
           </nav>
         </div>
-        <div class="footer-hint">WASD move · Shift sprint · F flashlight · E take · Esc pause</div>
+        <div class="footer-hint">
+          <span><b>WASD</b> move</span><span><b>Shift</b> sprint</span><span><b>Click</b> shoot</span>
+          <span><b>C Q E</b> abilities</span><span><b>F</b> take page</span><span><b>T</b> light</span><span><b>Y</b> inspect</span>
+        </div>
       </section>
 
       <!-- join -->
       <section id="join" class="screen">
         <div class="menu-col">
-          <h2 class="heading">Join game</h2>
-          <p class="sub">Enter the 4-letter code your friend sent you.</p>
+          <div class="eyebrow">Join a friend</div>
+          <h2 class="heading">Enter code</h2>
           <input id="join-code" maxlength="4" autocomplete="off" spellcheck="false" placeholder="ABCD" />
           <p id="join-error" class="error"></p>
-          <nav class="menu-list">
-            <button id="join-go">Join</button>
-            <button data-go="menu">Back</button>
-          </nav>
+          <div class="btn-row">
+            <button id="join-go" class="btn primary">Join</button>
+            <button data-go="menu" class="btn">Back</button>
+          </div>
         </div>
       </section>
 
-      <!-- lobby -->
+      <!-- lobby: agent-select style -->
       <section id="lobby" class="screen">
-        <div class="menu-col wide">
-          <h2 class="heading">Lobby</h2>
-          <div class="code-row">
-            <div>
-              <div class="label">Room code</div>
-              <div id="lobby-code" class="code">----</div>
-            </div>
-            <button id="copy-link" class="ghost">Copy invite link</button>
+        <div class="select-head">
+          <div>
+            <div class="eyebrow">Custom game · The Woods</div>
+            <h2 class="heading xl">Choose your role</h2>
+            <div class="note" id="role-note"></div>
           </div>
-
-          <div class="label">Roles <span id="role-note" class="muted"></span></div>
-          <div class="roles">
-            <button class="role" data-role="seeker">
-              <span class="role-name">Seeker</span>
-              <span class="role-desc">Find all 5 pages in the dark with only a flashlight.</span>
-              <span class="role-who"></span>
-            </button>
-            <button class="role" data-role="hunter">
-              <span class="role-name">Hunter</span>
-              <span class="role-desc">Tall and silent. Catch the seeker before they find the last page.</span>
-              <span class="role-who"></span>
-            </button>
+          <div class="code-card">
+            <div class="label">Room code</div>
+            <div id="lobby-code" class="code">----</div>
+            <button id="copy-link" class="btn small">Copy invite link</button>
           </div>
+        </div>
 
-          <p id="lobby-status" class="sub"></p>
-          <nav class="menu-list row">
-            <button id="start-game" disabled>Start</button>
-            <button id="leave-lobby">Leave</button>
-          </nav>
+        <div class="roles">
+          <button class="role" data-role="seeker">
+            <span class="role-art seeker-art"></span>
+            <span class="role-tag-line">Role · Initiator</span>
+            <span class="role-name">Seeker</span>
+            <span class="role-desc">Find all 5 pages. Classic: 3 stun rounds, reloads itself, headshots stun longer. Recon, Flash and Dash on cooldowns.</span>
+            <span class="role-kit"><i>C</i><i>Q</i><i>E</i></span>
+            <span class="role-who"></span>
+          </button>
+          <button class="role" data-role="hunter">
+            <span class="role-art hunter-art"></span>
+            <span class="role-tag-line">Role · Controller</span>
+            <span class="role-name">Hunter</span>
+            <span class="role-desc">Sees in the dark. Teleports and throws a watching eye. Catch the seeker before the last page.</span>
+            <span class="role-kit"><i>Q</i><i>E</i></span>
+            <span class="role-who"></span>
+          </button>
+        </div>
+
+        <div class="select-foot">
+          <p id="lobby-status" class="status-line"></p>
+          <div class="btn-row">
+            <button id="leave-lobby" class="btn">Leave</button>
+            <button id="start-game" class="btn lockin" disabled>Lock in</button>
+          </div>
         </div>
       </section>
 
       <!-- settings -->
       <section id="settings" class="screen">
-        <div class="menu-col">
+        <div class="menu-col panel">
+          <div class="eyebrow">Options</div>
           <h2 class="heading">Settings</h2>
           <label class="setting">Graphics
             <select id="set-quality"><option value="auto">Auto</option><option value="high">High</option><option value="low">Low</option></select>
+          </label>
+          <label class="setting">Classic skin
+            <select id="set-skin"><option value="red">Nocturnum · Red</option><option value="blue">Nocturnum · Blue</option><option value="black">Nocturnum · Black</option><option value="yellow">Nocturnum · Yellow</option></select>
           </label>
           <label class="setting">Mouse sensitivity
             <input id="set-sens" type="range" min="0.2" max="3" step="0.05" />
@@ -97,49 +115,63 @@
           <label class="setting">Volume
             <input id="set-vol" type="range" min="0" max="1" step="0.05" />
           </label>
-          <p class="sub muted">Graphics changes apply after reloading the page.</p>
-          <nav class="menu-list">
-            <button id="settings-back">Back</button>
-          </nav>
+          <p class="note">Graphics changes apply after reloading the page.</p>
+          <div class="btn-row">
+            <button id="settings-back" class="btn">Back</button>
+          </div>
         </div>
       </section>
 
       <!-- in game -->
       <section id="hud" class="screen">
-        <div class="crosshair"></div>
-        <div id="prompt" class="prompt">E &nbsp;Take page</div>
+        <div id="speedlines" class="speedlines"></div>
+        <div class="crosshair"><i class="ch-t"></i><i class="ch-b"></i><i class="ch-l"></i><i class="ch-r"></i></div>
+        <div class="topbar">
+          <div class="tb-side seeker"><span id="tb-pages">0</span><small>pages</small></div>
+          <div class="tb-time" id="tb-time">0:00</div>
+          <div class="tb-side hunter"><small>of</small><span>5</span></div>
+        </div>
+        <div id="prompt" class="prompt"><b>F</b> Take page</div>
         <div id="pages" class="pages"></div>
         <div id="page-text" class="page-text"></div>
         <div id="role-tag" class="role-tag"></div>
         <div class="stamina"><i id="stamina-fill"></i></div>
+        <div id="hitmarker" class="hitmarker"></div>
+        <div id="status" class="status"></div>
+        <div id="abilities" class="abilities"></div>
+        <div id="ammo" class="ammo"></div>
       </section>
 
       <section id="click-to-play" class="screen">
         <div class="center-msg">
+          <div class="eyebrow">Round starting</div>
           <div class="big">Click to play</div>
-          <div class="sub">Esc to pause</div>
+          <div class="note">Esc to pause</div>
         </div>
       </section>
 
       <section id="pause" class="screen">
-        <div class="menu-col">
+        <div class="menu-col panel">
+          <div class="eyebrow">Game running</div>
           <h2 class="heading">Paused</h2>
-          <p class="sub muted">The game keeps running for the other player.</p>
-          <nav class="menu-list">
-            <button id="resume">Resume</button>
-            <button id="pause-leave">Leave game</button>
-          </nav>
+          <p class="note">The round keeps going for the other player.</p>
+          <div class="btn-row">
+            <button id="resume" class="btn primary">Resume</button>
+            <button id="pause-leave" class="btn">Leave game</button>
+          </div>
         </div>
       </section>
 
       <section id="end" class="screen">
-        <div class="center-msg">
-          <div id="end-title" class="big"></div>
-          <div id="end-sub" class="sub"></div>
-          <nav class="menu-list row center">
-            <button id="end-lobby">Back to lobby</button>
-            <button id="end-menu">Main menu</button>
-          </nav>
+        <div class="end-banner">
+          <div class="end-line"></div>
+          <div id="end-title" class="end-title"></div>
+          <div id="end-sub" class="end-sub"></div>
+          <div class="end-line"></div>
+          <div class="btn-row center">
+            <button id="end-lobby" class="btn primary">Back to lobby</button>
+            <button id="end-menu" class="btn">Main menu</button>
+          </div>
         </div>
       </section>
 

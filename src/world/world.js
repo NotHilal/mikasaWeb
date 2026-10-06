@@ -5,21 +5,24 @@ import { rng, simplex2 } from './noise.js';
 import { makeHeight, buildTerrain } from './terrain.js';
 import { treeKit, tube } from './trees.js';
 import { loadProps } from './props.js';
+import { buildLandmarks } from './landmarks.js';
 import { Chunked, makeMatrix } from './instancing.js';
 import { MAP, PAGES } from '../config.js';
 import { quality } from '../engine.js';
 
 // --- collision: circles in a spatial hash ------------------------------------
+// Each circle is a vertical cylinder up to height `top` (world y), so low rocks block
+// walking but not a shot fired over them.
 class Colliders {
   constructor(cell = 4) { this.cell = cell; this.map = new Map(); }
   key(ix, iz) { return ix * 73856093 ^ iz * 19349663; }
-  add(x, z, r) {
+  add(x, z, r, top = Infinity) {
     const c = this.cell;
     for (let ix = Math.floor((x - r) / c); ix <= Math.floor((x + r) / c); ix++)
       for (let iz = Math.floor((z - r) / c); iz <= Math.floor((z + r) / c); iz++) {
         const k = this.key(ix, iz);
         if (!this.map.has(k)) this.map.set(k, []);
-        this.map.get(k).push({ x, z, r });
+        this.map.get(k).push({ x, z, r, top });
       }
   }
   // push a circle (pos.x, pos.z, radius) out of everything it overlaps; mutates pos
@@ -39,6 +42,41 @@ class Colliders {
     const lim = MAP.play, len = Math.hypot(pos.x, pos.z);
     if (len > lim) { pos.x *= lim / len; pos.z *= lim / len; }
   }
+
+  // first point where the segment a→b hits a cylinder, as a fraction 0..1 of the way, or null
+  hit(a, b) {
+    const dx = b.x - a.x, dz = b.z - a.z, len2 = dx * dx + dz * dz;
+    const steps = Math.ceil(Math.sqrt(len2) / (this.cell * 0.5)) + 1;
+    const seen = new Set();
+    let best = null;
+    for (let i = 0; i <= steps; i++) {
+      const px = a.x + (dx * i) / steps, pz = a.z + (dz * i) / steps;
+      const ix = Math.floor(px / this.cell), iz = Math.floor(pz / this.cell);
+      for (let ox = -1; ox <= 1; ox++)
+        for (let oz = -1; oz <= 1; oz++) {
+          const k = this.key(ix + ox, iz + oz);
+          if (seen.has(k)) continue;
+          seen.add(k);
+          for (const o of this.map.get(k) ?? []) {
+            // ray/circle intersection in XZ
+            const fx = a.x - o.x, fz = a.z - o.z;
+            const B = 2 * (fx * dx + fz * dz), C = fx * fx + fz * fz - o.r * o.r;
+            if (len2 < 1e-9) continue;
+            const disc = B * B - 4 * len2 * C;
+            if (disc < 0) continue;
+            let t = (-B - Math.sqrt(disc)) / (2 * len2);
+            if (C < 0) t = 0; // starts inside
+            if (t < 0 || t > 1 || (best !== null && t >= best)) continue;
+            if (a.y + (b.y - a.y) * t > o.top) continue; // passes over it
+            best = t;
+          }
+        }
+    }
+    return best;
+  }
+
+  // true if something solid stands between a and b
+  blocked(a, b) { return this.hit(a, b) !== null; }
 }
 
 function fallenLog(seed, barkMat) {
@@ -84,6 +122,11 @@ export async function buildWorld(scene, manager) {
   const add = (c) => { scene.add(c.group); updaters.push(c); };
 
   scene.add(buildTerrain(height, texLoader));
+  const props = await loadProps(manager, texLoader);
+
+  // landmarks first, so the forest leaves room around them
+  const sites = buildLandmarks(scene, height, colliders, props.rocks);
+  const nearSite = (x, z, pad = 0) => sites.some((st) => Math.hypot(x - st.x, z - st.z) < st.clear + pad);
 
   // --- trees: jittered grid, thinned by noise into clearings and denser stands
   const kit = treeKit(texLoader);
@@ -97,11 +140,12 @@ export async function buildWorld(scene, manager) {
       const d = density(x * 0.025, z * 0.025);
       if (!edge && (d < -0.35 || r() > 0.42 + d * 0.3)) continue;
       if (Math.hypot(x, z) < 6) continue; // small clearing in the middle
+      if (!edge && nearSite(x, z, 1.5)) continue; // room around the landmarks
       const v = r.int(kit.variants.length), scale = r.range(0.85, 1.2), rot = r() * Math.PI * 2;
       treeMats[v].push(makeMatrix(x, height.heightAt(x, z), z, rot, scale));
       const radius = kit.variants[v].radius * scale;
       trees.push({ x, z, r: radius, variant: v, scale, rot, H: kit.variants[v].height * scale });
-      colliders.add(x, z, radius + 0.08);
+      colliders.add(x, z, radius + 0.08, height.heightAt(x, z) + kit.variants[v].height * scale);
     }
   }
   kit.variants.forEach((v, i) => {
@@ -112,8 +156,6 @@ export async function buildWorld(scene, manager) {
   });
 
   // --- props
-  const props = await loadProps(manager, texLoader);
-  const inPlay = (x, z, margin = 0) => Math.hypot(x, z) < MAP.play - margin;
   const randPoint = () => [r.range(-MAP.half, MAP.half), r.range(-MAP.half, MAP.half)];
 
   // Ground cover is cosmetic and its amount depends on the graphics setting, so it uses
@@ -127,6 +169,7 @@ export async function buildWorld(scene, manager) {
   for (let i = 0; i < (high ? 2600 : 1300); i++) {
     const [x, z] = coverPoint();
     if (density(x * 0.05 + 20, z * 0.05) < -0.05 && rc() > 0.15) continue;
+    if (nearSite(x, z, -1)) continue;
     fernMats[rc.int(props.ferns.length)].push(makeMatrix(x, height.heightAt(x, z) - 0.02, z, rc() * 6.28, rc.range(0.9, 1.9)));
   }
   props.ferns.forEach((f, i) => {
@@ -138,6 +181,7 @@ export async function buildWorld(scene, manager) {
   for (let i = 0; i < (high ? 24000 : 12000); i++) {
     const [x, z] = coverPoint();
     if (density(x * 0.04 - 9, z * 0.04 + 4) < 0.0 && rc() > 0.1) continue;
+    if (nearSite(x, z, -2)) continue;
     grassMats.push(makeMatrix(x, height.heightAt(x, z) - 0.02, z, rc() * 6.28, rc.range(0.7, 1.4)));
   }
   add(new Chunked(props.grass.geometry, props.grass.material, grassMats, { shadow: false, maxDist: 28, chunk: 12 }));
@@ -148,8 +192,9 @@ export async function buildWorld(scene, manager) {
     const [x, z] = randPoint();
     const v = r.int(props.rocks.length), s = r() < 0.15 ? r.range(0.9, 1.6) : r.range(0.25, 0.7);
     const bb = props.rocks[v].geometry.boundingBox;
+    if (nearSite(x, z, 1)) continue;
     rockMats[v].push(makeMatrix(x, height.heightAt(x, z) - bb.min.y * s * 0.5 - 0.1 * s, z, r() * 6.28, s, r.range(-0.15, 0.15), r.range(-0.15, 0.15)));
-    if (s > 0.55) colliders.add(x, z, Math.min(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * 0.45 * s);
+    if (s > 0.55) colliders.add(x, z, Math.min(bb.max.x - bb.min.x, bb.max.z - bb.min.z) * 0.45 * s, height.heightAt(x, z) + bb.max.y * s * 0.7);
   }
   props.rocks.forEach((p, i) => add(new Chunked(p.geometry, p.material, rockMats[i], { maxDist: 45, chunk: 16 })));
 
@@ -158,8 +203,9 @@ export async function buildWorld(scene, manager) {
   for (let i = 0; i < 14; i++) {
     const [x, z] = randPoint();
     const s = r.range(0.8, 1.3);
+    if (nearSite(x, z, 1)) continue;
     stumpMats.push(makeMatrix(x, height.heightAt(x, z) + 0.12 * s, z, r() * 6.28, s));
-    colliders.add(x, z, 0.55 * s);
+    colliders.add(x, z, 0.55 * s, height.heightAt(x, z) + 0.5 * s);
   }
   add(new Chunked(props.stumps[0].geometry, props.stumps[0].material, stumpMats, { maxDist: 40, chunk: 16 }));
 
@@ -170,49 +216,46 @@ export async function buildWorld(scene, manager) {
     const [x, z] = randPoint();
     const v = r.int(logs.length), rot = r() * Math.PI * 2;
     const L = logs[v].length, R = logs[v].radius;
+    if (nearSite(x, z, L / 2 + 1)) continue;
     const hx = Math.cos(rot) * L * 0.5, hz = -Math.sin(rot) * L * 0.5;
     const y = Math.min(height.heightAt(x - hx, z - hz), height.heightAt(x + hx, z + hz), height.heightAt(x, z));
     const slope = Math.atan2(height.heightAt(x + hx, z + hz) - height.heightAt(x - hx, z - hz), L);
     logMats[v].push(makeMatrix(x, y + R * 0.6, z, rot, 1, 0, slope));
-    for (let t = -0.5; t <= 0.5; t += 0.35 / L) colliders.add(x + hx * 2 * t, z + hz * 2 * t, R + 0.05);
+    for (let t = -0.5; t <= 0.5; t += 0.35 / L) colliders.add(x + hx * 2 * t, z + hz * 2 * t, R + 0.05, y + R * 1.8);
   }
   logs.forEach((l, i) => add(new Chunked(l.geometry, l.material, logMats[i], { maxDist: 45 })));
 
   // --- pages
   const pageGeo = new THREE.PlaneGeometry(0.21, 0.29);
-  const pageCandidates = trees.filter((t) => inPlay(t.x, t.z, 8));
 
   return {
     heightAt: height.heightAt,
     colliders,
     trees,
+    landmarks: sites,
     update(dt, camPos, time) {
       props.grass.uTime.value = time;
       for (const u of updaters) u.update(camPos);
     },
 
-    // choose PAGES trees far apart, using a per-match seed (same on both clients)
+    // choose PAGES landmarks (and a spot on each), using a per-match seed (same on both clients)
     pickPages(seed) {
       const pr = rng(seed);
-      const chosen = [];
-      for (let tries = 0; chosen.length < PAGES && tries < 5000; tries++) {
-        const i = pr.int(pageCandidates.length);
-        const t = pageCandidates[i];
-        if (chosen.some((c) => Math.hypot(pageCandidates[c].x - t.x, pageCandidates[c].z - t.z) < 26)) continue;
-        chosen.push(i);
-      }
-      return chosen.map((i, n) => ({ tree: i, face: pr() * Math.PI * 2, n: n + 1 }));
+      const order = sites.map((_, i) => i);
+      for (let i = order.length - 1; i > 0; i--) { const j = pr.int(i + 1); [order[i], order[j]] = [order[j], order[i]]; }
+      return order.slice(0, PAGES).map((site, n) => ({ site, spot: pr.int(sites[site].spots.length), n: n + 1 }));
     },
 
-    // put page meshes on their trees; returns [{ mesh, pos }]
-    placePages(spots) {
-      return spots.map(({ tree, face, n }) => {
-        const t = pageCandidates[tree];
-        const y = 1.5;
-        const trunkR = t.r * (1 - (y + 0.3) / t.H) ** 1.15;
-        const dir = new THREE.Vector3(Math.sin(face), 0, Math.cos(face));
-        const pos = new THREE.Vector3(t.x, height.heightAt(t.x, t.z) + y, t.z).addScaledVector(dir, trunkR + 0.05);
-        const mesh = new THREE.Mesh(pageGeo, new THREE.MeshStandardMaterial({ map: pageTexture(n), color: 0xb0b0b0, roughness: 0.9, side: THREE.DoubleSide }));
+    // pin page meshes to their landmarks; returns [{ mesh, pos, n }]
+    placePages(chosen) {
+      return chosen.map(({ site, spot, n }) => {
+        const { pos, face } = sites[site].spots[spot];
+        // the paper glows very faintly, so a sweep of the flashlight catches it from further away
+        const map = pageTexture(n);
+        const mesh = new THREE.Mesh(pageGeo, new THREE.MeshStandardMaterial({
+          map, color: 0xb0b0b0, roughness: 0.9, side: THREE.DoubleSide,
+          emissive: 0xffffff, emissiveMap: map, emissiveIntensity: 0.32,
+        }));
         mesh.position.copy(pos);
         mesh.rotation.set(0, face, (pr2(n) - 0.5) * 0.3);
         mesh.castShadow = true;

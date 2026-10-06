@@ -22,6 +22,9 @@ export class Player {
     this.stats = null; // { eye, walk, sprint?, stamina? }
     this.stamina = 0;
     this.sprinting = false;
+    this.frozen = false;   // stunned: can look around but not move
+    this.dashT = 0;        // seconds of dash left
+    this.dashVel = new THREE.Vector3();
 
     addEventListener('keydown', (e) => { this.keys.add(e.code); });
     addEventListener('keyup', (e) => { this.keys.delete(e.code); });
@@ -40,6 +43,8 @@ export class Player {
     this.stats = stats;
     this.stamina = stats.stamina ?? 0;
     this.vel.set(0, 0, 0);
+    this.frozen = false;
+    this.dashT = 0;
     this.yaw = lookAt ? Math.atan2(-(lookAt.x - pos.x), -(lookAt.z - pos.z)) : 0;
     this.pitch = 0;
     this.eyeY = this.world.heightAt(pos.x, pos.z) + stats.eye;
@@ -49,13 +54,27 @@ export class Player {
     return new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
   }
 
+  // the direction the player is trying to move in (world space, flat), or forward if none
+  moveDir() {
+    const k = this.keys;
+    const x = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0), y = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0);
+    const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
+    const d = x || y ? new THREE.Vector3(x * cos - y * sin, 0, -x * sin - y * cos) : new THREE.Vector3(-sin, 0, -cos);
+    return d.normalize();
+  }
+
+  dash(distance, time) {
+    this.dashVel.copy(this.moveDir()).multiplyScalar(distance / time);
+    this.dashT = time;
+  }
+
   update(dt) {
     const k = this.keys;
     const input = new THREE.Vector2(
       (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0),
       (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0),
     );
-    if (!this.enabled) input.set(0, 0);
+    if (!this.enabled || this.frozen) input.set(0, 0);
     if (input.lengthSq() > 1) input.normalize();
 
     const st = this.stats;
@@ -72,12 +91,21 @@ export class Player {
     // world-space wish direction from yaw only
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
     const wish = new THREE.Vector3(input.x * cos - input.y * sin, 0, -input.x * sin - input.y * cos).multiplyScalar(speed);
-    // smooth acceleration so movement has some weight
-    this.vel.lerp(wish, 1 - Math.exp(-dt * (wish.lengthSq() ? 9 : 12)));
+    // snappy, Valorant-like acceleration: you reach full speed (and stop) almost at once
+    this.vel.lerp(wish, 1 - Math.exp(-dt * (wish.lengthSq() ? 18 : 22)));
+    if (this.dashT > 0) {
+      this.dashT -= dt;
+      this.vel.copy(this.dashVel);
+      if (this.dashT <= 0) this.vel.multiplyScalar(0.4); // carry a little momentum out of it
+    }
 
-    this.pos.x += this.vel.x * dt;
-    this.pos.z += this.vel.z * dt;
-    this.world.colliders.resolve(this.pos, 0.35);
+    // move in small steps so a fast dash can't skip through a thin trunk
+    const steps = Math.max(1, Math.ceil((Math.hypot(this.vel.x, this.vel.z) * dt) / 0.25));
+    for (let i = 0; i < steps; i++) {
+      this.pos.x += (this.vel.x * dt) / steps;
+      this.pos.z += (this.vel.z * dt) / steps;
+      this.world.colliders.resolve(this.pos, 0.35);
+    }
     const ground = this.world.heightAt(this.pos.x, this.pos.z);
     this.pos.y = ground;
 
@@ -86,7 +114,8 @@ export class Player {
     const prev = this.bob;
     this.bob += dt * moving * (this.sprinting ? 2.1 : 2.3);
     if (Math.floor(prev / Math.PI) !== Math.floor(this.bob / Math.PI) && moving > 0.5) this.onStep?.(moving);
-    const amp = Math.min(1, moving / 3) * (this.sprinting ? 0.06 : 0.035);
+    // a very light bob only (Valorant keeps the camera steady)
+    const amp = Math.min(1, moving / 3) * (this.sprinting ? 0.014 : 0.007);
 
     // smooth the eye height over bumps
     this.eyeY += (ground + st.eye - this.eyeY) * (1 - Math.exp(-dt * 12));
@@ -95,6 +124,6 @@ export class Player {
       this.eyeY + Math.abs(Math.cos(this.bob)) * amp - amp * 0.5,
       this.pos.z - Math.sin(this.yaw) * Math.sin(this.bob) * amp * 0.5,
     );
-    this.camera.rotation.set(this.pitch, this.yaw, Math.sin(this.bob) * amp * 0.08, 'YXZ');
+    this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
   }
 }

@@ -22,11 +22,13 @@ const FilmShader = {
     uFringe: { value: 0.0006 },
     uSaturation: { value: 0.8 },
     uStatic: { value: 0 },     // screen noise (0..1), for when the hunter is close/seen
+    uFlash: { value: 0 },      // white-out from a flash (0..1)
+    uTint: { value: 0 },       // red tint while stunned (0..1)
     uLift: { value: new THREE.Vector3(0.006, 0.008, 0.014) }, // blue-ish shadows
   },
   vertexShader: /* glsl */`varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
-    uniform sampler2D tDiffuse; uniform float uTime, uGrain, uVignette, uFringe, uSaturation, uStatic; uniform vec3 uLift;
+    uniform sampler2D tDiffuse; uniform float uTime, uGrain, uVignette, uFringe, uSaturation, uStatic, uFlash, uTint; uniform vec3 uLift;
     varying vec2 vUv;
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     void main() {
@@ -43,6 +45,8 @@ const FilmShader = {
       // static: noise lines and snow
       float lines = step(0.5, hash(vec2(floor(vUv.y * 180.0), floor(uTime * 30.0))));
       col = mix(col, vec3(hash(vUv * 500.0 + uTime) * 0.8) * (0.6 + 0.4 * lines), uStatic * 0.85);
+      col = mix(col, vec3(l * 1.4 + 0.08, l * 0.3, l * 0.3), uTint * 0.7);
+      col = mix(col, vec3(1.0), uFlash);
       gl_FragColor = vec4(col, 1.0);
     }`,
 };
@@ -96,6 +100,14 @@ export function createEngine(container) {
   // post-processing
   const composer = new EffectComposer(renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType }));
   composer.addPass(new RenderPass(scene, camera));
+  // first-person weapon: its own scene, drawn over the world after clearing depth so it
+  // never pokes into trees
+  const viewScene = new THREE.Scene();
+  viewScene.add(new THREE.HemisphereLight(0x3a4a66, 0x0d0a08, 1.4));
+  const viewPass = new RenderPass(viewScene, camera);
+  viewPass.clear = false;
+  viewPass.clearDepth = true;
+  composer.addPass(viewPass);
   const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.25, 0.5, 1.6);
   composer.addPass(bloom);
   composer.addPass(new OutputPass());
@@ -136,7 +148,7 @@ export function createEngine(container) {
   }
 
   const api = {
-    renderer, scene, camera, composer, film, moon, hemi, sky,
+    renderer, scene, camera, composer, film, moon, hemi, sky, viewScene,
     fixedScale: 0, // set to lock the render scale (testing)
     get scale() { return scale; },
     setScale(s) { scale = s; resize(); },

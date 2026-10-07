@@ -436,6 +436,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 .card-hint { margin-top: auto; font: 600 13px var(--cond); letter-spacing: 0.2em; text-transform: uppercase; color: var(--teal); transition: opacity 0.4s; }
 .card-hint.gone { opacity: 0; }
 .letter-foot { margin-bottom: auto; }
+/* Main menu only once the gift's been scratched off (gift.js); its space is kept so nothing moves */
+#letter-menu { opacity: 0; visibility: hidden; transform: translateY(8px); transition: opacity 0.6s, transform 0.6s, visibility 0s 0.6s; }
+#letter-menu.show { opacity: 1; visibility: visible; transform: none; transition: opacity 0.6s, transform 0.6s; }
 /* the card: as wide as fits, the picture's shape (--aspect, set from the picture) */
 .card {
   --aspect: 1.777; flex: none; perspective: 1600px; cursor: pointer;

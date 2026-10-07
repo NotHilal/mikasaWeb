@@ -52,6 +52,8 @@ export function openCard({ onFlip, onScratched }) {
   card.classList.remove('flipped');
   box.classList.remove('revealed');
   hint.classList.remove('gone');
+  // no way out until the gift is scratched off
+  $('#letter-menu').classList.remove('show');
   hint.textContent = 'Click the card to turn it over';
   const [small, big, sub] = GIFT.prize;
   $('#scratch-prize').innerHTML = `<div>${small ?? ''}</div><div class="amt">${big ?? ''}</div><div class="sub">${sub ?? ''}</div>`;
@@ -119,6 +121,7 @@ export function openCard({ onFlip, onScratched }) {
       done = true;
       box.classList.add('revealed');
       hint.textContent = 'For you ♥';
+      setTimeout(() => $('#letter-menu').classList.add('show'), 1500); // (after a moment with it)
       onScratched?.();
     }
   };

@@ -2,7 +2,7 @@
 // and ability sounds. The one file is the jumpscare (audio.file, SCARE in config.js).
 import { settings } from './settings.js';
 
-let ctx = null, master = null, noiseBuf = null;
+let ctx = null, master = null, noiseBuf = null, whiteBuf = null;
 
 function noise(seconds = 2) {
   const b = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
@@ -13,6 +13,13 @@ function noise(seconds = 2) {
     last = (last + (Math.random() * 2 - 1) * 0.04) * 0.995;
     d[i] = last * 6 + (Math.random() * 2 - 1) * 0.15;
   }
+  return b;
+}
+// plain white noise: bright, for the crunch of leaves underfoot
+function white(seconds = 1) {
+  const b = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
+  const d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
   return b;
 }
 
@@ -32,9 +39,9 @@ function out(at, vol = 1, dest = master) {
   return g;
 }
 
-function noiseHit(dest, t, { type = 'bandpass', freq = 1000, q = 1, attack = 0.005, decay = 0.2, vol = 1, sweepTo = null }) {
+function noiseHit(dest, t, { type = 'bandpass', freq = 1000, q = 1, attack = 0.005, decay = 0.2, vol = 1, sweepTo = null, buf = noiseBuf }) {
   const src = ctx.createBufferSource();
-  src.buffer = noiseBuf;
+  src.buffer = buf;
   const f = ctx.createBiquadFilter();
   f.type = type; f.frequency.setValueAtTime(freq, t); f.Q.value = q;
   if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, t + decay);
@@ -43,7 +50,7 @@ function noiseHit(dest, t, { type = 'bandpass', freq = 1000, q = 1, attack = 0.0
   g.gain.exponentialRampToValueAtTime(vol, t + attack);
   g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
   src.connect(f).connect(g).connect(dest);
-  src.start(t, Math.random() * 1.2, attack + decay + 0.05);
+  src.start(t, Math.random() * (buf.duration - attack - decay - 0.06), attack + decay + 0.05);
 }
 
 function tone(dest, t, { type = 'sine', from = 440, to = null, attack = 0.005, decay = 0.3, vol = 0.3 }) {
@@ -273,6 +280,7 @@ export const audio = {
     master.gain.value = settings.volume;
     master.connect(ctx.destination);
     noiseBuf = noise();
+    whiteBuf = white();
     startAmbience();
   },
 
@@ -289,20 +297,33 @@ export const audio = {
     crickets.gain.setTargetAtTime(Math.max(0, 1 - k * 1.6), t, 0.6);
   },
 
-  // a footstep on leaf litter: a soft, muffled heel thud and a few faint crackles
-  // (quieter and darker than plain noise, which hissed); settings.steps is its volume
+  // a footstep on dry leaf litter: no low thud at all (that was too much like the heartbeat), just
+  // the crunch: a short "shhk" of leaves pressed down, a quick crackle of tiny dry clicks, and now
+  // and then a twig snapping. Bright white noise, every value a little different each step.
+  // settings.steps is its volume.
   step(speed) {
     if (!ctx || !settings.steps) return;
     const t = ctx.currentTime;
     const dest = ctx.createGain();
     dest.gain.value = settings.steps * Math.min(1, 0.45 + speed * 0.08);
-    dest.connect(master);
-    noiseHit(dest, t, { type: 'lowpass', freq: 240 + Math.random() * 90, attack: 0.006, decay: 0.09 + Math.random() * 0.03, vol: 0.5 });
-    const crackles = 2 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < crackles; i++) {
-      noiseHit(dest, t + 0.01 + Math.random() * 0.07, {
-        type: 'bandpass', freq: 1300 + Math.random() * 1500, q: 2.5, attack: 0.002, decay: 0.02 + Math.random() * 0.03, vol: 0.04 + Math.random() * 0.05,
+    // (and nothing below the leaves: no rumble under it)
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 450;
+    dest.connect(hp).connect(master);
+    const w = whiteBuf;
+    // the leaves pressed down: a soft band of noise that falls a little as the foot settles
+    const f = 1100 + Math.random() * 600;
+    noiseHit(dest, t, { buf: w, type: 'bandpass', freq: f, q: 0.9, attack: 0.012, decay: 0.11 + Math.random() * 0.05, vol: 0.32, sweepTo: f * 0.7 });
+    // the crackle: many tiny bright clicks spread over the step
+    const grains = 7 + Math.floor(Math.random() * 6);
+    for (let i = 0; i < grains; i++) {
+      noiseHit(dest, t + 0.004 + Math.random() * 0.12, {
+        buf: w, type: 'bandpass', freq: 2200 + Math.random() * 3800, q: 1.6, attack: 0.001, decay: 0.006 + Math.random() * 0.018, vol: 0.06 + Math.random() * 0.1,
       });
+    }
+    // a twig, sometimes: one sharp, slightly louder snap
+    if (Math.random() < 0.15) {
+      noiseHit(dest, t + 0.02 + Math.random() * 0.06, { buf: w, type: 'bandpass', freq: 2600 + Math.random() * 1200, q: 4, attack: 0.001, decay: 0.012, vol: 0.28 });
     }
   },
 

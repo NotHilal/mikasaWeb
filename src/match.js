@@ -443,8 +443,9 @@ export class Match {
       gravity: DART.gravity, pulses: DART.pulses, gap: DART.pulseGap, radius: DART.radius,
       onPulse: (p) => {
         audio.play('scan', this.at(p));
-        if (!mine) return;
+        // the zone shows on both maps: the seeker's own, and the hunter's (he sees where she's searching)
         this.mapScan(p, DART.radius, 'dart');
+        if (!mine) return;
         this.dartFindsPage(p);
         // reveal the hunter if he's in range (the scan goes through trees, like sonar:
         // in a forest this dense a clear line of sight is rare)
@@ -474,7 +475,8 @@ export class Match {
     this.mapT = 0;
   }
 
-  // my own dart or eye scanned here: the zone shows on my minimap for a few seconds
+  // a dart (either player sees it) or my own eye scanned here: the zone shows on my minimap for a
+  // few seconds
   mapScan(p, r, kind) {
     this.scans.push({ x: p.x, z: p.z, r, color: SCAN_COLOR[kind], at: now() });
     this.mapT = 0; // (draw it now)

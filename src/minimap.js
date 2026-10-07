@@ -1,5 +1,6 @@
 // The minimap, top left of the HUD: the woods from above, north up. Trees, landmarks, the edge of
-// the play area, the pages already taken, the zones your own dart or eye scanned, and you (an
+// the play area, the pages already taken, the zones the seeker's darts (both players see them) or
+// your own eye scanned, and you (an
 // arrow pointing where you look). Never the other player, and never exactly where the pages still
 // to find are: that would spoil the hunt (late in a round, both players get a rough circle round
 // each, PAGE_ZONES).

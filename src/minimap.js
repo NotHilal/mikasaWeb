@@ -1,7 +1,7 @@
 // The minimap, top left of the HUD: the woods from above, north up. Trees, landmarks, the edge of
 // the play area, the pages already taken, the zones your own dart or eye scanned, and you (an
 // arrow pointing where you look). Never the other player, and never exactly where the pages still
-// to find are: that would spoil the hunt (late in a round, the seeker gets a rough circle round
+// to find are: that would spoil the hunt (late in a round, both players get a rough circle round
 // each, PAGE_ZONES).
 import { MAP } from './config.js';
 // (scan colours: the dart's teal, the eye's pink, like their scans in the woods)

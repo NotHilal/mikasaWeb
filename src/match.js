@@ -9,6 +9,7 @@ import { $, flash, hud, toast } from './ui.js';
 import { settings } from './settings.js';
 import { createMinimap, SCAN_SHOW, SCAN_COLOR } from './minimap.js';
 import { crouchK } from './player.js';
+import { rng } from './world/noise.js';
 import { actionFor, key, label, mouseCode } from './keys.js';
 import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT, SCARE, PAGE_ZONES } from './config.js';
 
@@ -134,6 +135,7 @@ export class Match {
 
     // pages: new spots every round (not right where the seeker starts)
     this.pages = world.placePages(world.pickPages(seed, seekerSpawn));
+    this.seed = seed; // (the late page circles come from it, so both screens draw the same ones)
     const mine = role === 'seeker' ? seekerSpawn : hunterSpawn;
     player.spawn(mine, role, role === 'seeker' ? SEEKER : HUNTER, new THREE.Vector3(0, 0, 0));
     player.onStep = (speed) => audio.step(speed);
@@ -277,6 +279,7 @@ export class Match {
     }
     if (this.tpCast) this.tpCast.until += gap;
     for (const s of this.scans) s.at += gap;
+    if (this.cdT) this.cdT += gap; // (the cooldowns don't count the pause)
     this.lastPageAt += gap;
     if (this.pageReveal) this.pageReveal.until += gap;
     if (this.grab) { this.grab.start += gap; this.grab.until += gap; }
@@ -452,18 +455,21 @@ export class Match {
     });
   }
 
-  // seeker, once the round has run PAGE_ZONES.afterMs: each missing page gets a circle on the
-  // minimap, with the page anywhere inside it (√random: every spot of the circle as likely)
+  // both players, once the round has run PAGE_ZONES.afterMs: each missing page gets a circle on
+  // the minimap, with the page anywhere inside it (√random: every spot of the circle as likely).
+  // Placed from the round's seed, so the seeker and the hunter see the very same circles.
   showPageZones() {
     this.zonesShown = true;
     const r = PAGE_ZONES.radius;
     for (const p of this.pages) {
       if (p.taken) continue;
-      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * PAGE_ZONES.offset * r;
+      const rand = rng(this.seed * 977 + p.n * 131 + 7);
+      const a = rand() * Math.PI * 2, d = Math.sqrt(rand()) * PAGE_ZONES.offset * r;
       p.zone = { x: p.pos.x + Math.cos(a) * d, z: p.pos.z + Math.sin(a) * d, r };
     }
     const left = this.pages.filter((p) => !p.taken).length;
-    this.status(`${left === 1 ? 'The last page is' : `The ${left} missing pages are`} circled on your map`, 4000);
+    const what = left === 1 ? 'The last page is' : `The ${left} missing pages are`;
+    this.status(this.role === 'seeker' ? `${what} circled on your map. Slender sees them too` : `${what} circled on your map. Guard them`, 4500);
     audio.play('ready');
     this.mapT = 0;
   }
@@ -1006,11 +1012,14 @@ export class Match {
     } else player.frozen = !!this.grab;
     player.update(dt);
 
-    // cooldowns (hunter)
+    // cooldowns: by the clock, not by frames drawn, so they keep going while the page isn't drawn
+    // (a hidden tab or a covered window gets no frames at all); a connection pause stops them (setPaused)
+    const cdDt = Math.max(0, (t - (this.cdT ?? t)) / 1000);
+    this.cdT = t;
     let cdChanged = false;
     for (const k in this.cd) if (this.cd[k] > 0) {
       const before = Math.ceil(this.cd[k]);
-      this.cd[k] = Math.max(0, this.cd[k] - dt);
+      this.cd[k] = Math.max(0, this.cd[k] - cdDt);
       if (Math.ceil(this.cd[k]) !== before) cdChanged = true;
       if (this.cd[k] === 0) audio.play('ready');
     }
@@ -1096,6 +1105,9 @@ export class Match {
       this.setPrompt(this.canGrab(rs) ? `<b>${label('grab')}</b> Grab` : null);
     }
 
+    // late in the round: a rough circle round each missing page on both minimaps
+    if (!this.zonesShown && !this.over && t - this.startedAt >= PAGE_ZONES.afterMs) this.showPageZones();
+
     if (this.role === 'seeker') {
       this.updateDread(dt, rs);
       // the dart can find pages now: say so once
@@ -1104,8 +1116,6 @@ export class Match {
         this.status('Recon can now find pages', 3500);
         audio.play('ready');
       }
-      // late in the round: a rough circle round each missing page on the minimap
-      if (!this.zonesShown && !this.over && t - this.startedAt >= PAGE_ZONES.afterMs) this.showPageZones();
       // the revealed page: fades out over its last half second
       for (const p of this.pages) {
         const left = this.pageReveal?.page === p ? this.pageReveal.until - t : 0;

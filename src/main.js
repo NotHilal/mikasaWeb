@@ -195,6 +195,7 @@ function startDuel() {
 }
 function onDuelEnd({ winner, score, rounds }) {
   document.exitPointerLock();
+  releaseKeys();
   const isoWon = winner === 'seeker', won = winner === myRole();
   dvote.kind = isoWon ? 'continue' : 'again';
   $('#de-title').textContent = won ? 'Victory' : 'Defeat';
@@ -375,8 +376,21 @@ function leaveToMenu() {
   show('menu');
 }
 
-// mid-round, closing the tab asks first: Ctrl is crouch, and Ctrl+W (crouch-walking forward)
-// closes the tab, which a page can't stop
+// Ctrl is crouch, so crouch-walking forward is Ctrl+W: the browser's "close the tab". A page can
+// only keep that key (and Ctrl+T, Ctrl+N, …) with the Keyboard Lock API, which works in fullscreen
+// (Chrome, Edge): so playing goes fullscreen and locks the keys. Esc isn't locked: it still frees
+// the mouse (the pause menu) and leaves fullscreen; taking the mouse back goes fullscreen again.
+// Where there's no keyboard lock (Firefox, Safari), closing the tab mid-round asks first.
+const LOCKED_KEYS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((c) => `Key${c}`)
+  .concat([...'0123456789'].map((d) => `Digit${d}`), ['Space', 'Tab', 'Enter']);
+function holdKeys() {
+  if (!navigator.keyboard?.lock || !document.documentElement.requestFullscreen) return;
+  const lock = () => navigator.keyboard.lock(LOCKED_KEYS).catch(() => {});
+  if (document.fullscreenElement) { lock(); return; }
+  document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(lock, () => {});
+}
+// back in the menus the browser's own shortcuts work again (fullscreen stays until Esc)
+const releaseKeys = () => { try { navigator.keyboard?.unlock(); } catch {} };
 addEventListener('beforeunload', (e) => {
   if (match && !match.over) { e.preventDefault(); e.returnValue = ''; }
 });
@@ -388,6 +402,7 @@ function startMatch(seed) {
   lobby.ready = false; // back in the lobby afterwards, the guest readies up again
   match = new Match({ engine, world, player, flashlight, viewmodel, hunterArms, effects }, { seed, role: myRole() }, (result, recap) => {
     document.exitPointerLock();
+    releaseKeys();
     vote.duel = result === 'pages'; // every page found: the final duel comes next
     const won = (result === 'pages') === (myRole() === 'seeker');
     $('#end-title').textContent = won ? 'Victory' : 'Defeat';
@@ -410,6 +425,7 @@ function endMatch() {
   match?.dispose();
   match = null;
   document.exitPointerLock();
+  releaseKeys();
   flashlight.on = true;
 }
 
@@ -526,6 +542,7 @@ $('#ht-dots').onclick = (e) => { const i = e.target.closest('[data-ht]')?.datase
 // click through), and the next click or key press (any but Esc) takes it, so just starting to
 // walk does.
 function lockMouse() {
+  holdKeys(); // (fullscreen, so Ctrl+W crouch-walks instead of closing the tab)
   try { canvas.requestPointerLock()?.catch?.(() => {}); } catch {}
 }
 function takeMouse() {
@@ -693,6 +710,7 @@ function resume() {
   escResumedAt = performance.now();
   // Browsers may refuse to take the mouse again from an Esc press (it doesn't count as the
   // player interacting); then "click to play" does it with the next click.
+  holdKeys();
   try {
     const req = canvas.requestPointerLock();
     req?.catch?.(() => { if (screen() === 'pause') show('click-to-play'); });

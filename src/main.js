@@ -562,10 +562,12 @@ document.addEventListener('pointerlockchange', () => {
 });
 
 // settings
-// sensitivity and field of view have sliders in Settings and on the pause screen; keep them in step
+// sensitivity, field of view and the sound have sliders in Settings and on the pause screen; keep
+// them in step
 const SLIDERS = {
   sensitivity: (v) => v.toFixed(2),
   fov: (v) => `${v}°`,
+  volume: (v) => `${Math.round(v * 100)}%`,
   steps: (v) => `${Math.round(v * 100)}%`,
   ambience: (v) => `${Math.round(v * 100)}%`,
 };
@@ -579,7 +581,6 @@ function renderSliders() {
 function openSettings() {
   $('#set-quality').value = settings.quality;
   $('#set-skin').value = settings.skin;
-  $('#set-vol').value = settings.volume;
   renderSliders();
   show('settings');
 }
@@ -592,10 +593,10 @@ document.querySelectorAll('input[data-setting]').forEach((el) => {
     renderSliders();
     if (el.dataset.setting === 'fov') { engine.camera.fov = settings.fov; engine.camera.updateProjectionMatrix(); }
     if (el.dataset.setting === 'ambience') audio.setAmbience(settings.ambience);
+    if (el.dataset.setting === 'volume') audio.setVolume(settings.volume);
   };
 });
 renderSliders();
-$('#set-vol').oninput = (e) => { settings.volume = +e.target.value; audio.setVolume(settings.volume); saveSettings(); };
 $('#settings-back').onclick = () => show('menu');
 
 // --- controls: remap keys ----------------------------------------------------------------

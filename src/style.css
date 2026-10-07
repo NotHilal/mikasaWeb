@@ -123,6 +123,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 
 /* --- settings --- */
 .setting { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); font: 600 15px var(--cond); letter-spacing: 0.12em; text-transform: uppercase; }
+/* the pause menu has the sound sliders too: tighter on short screens so it all fits */
+@media (max-height: 680px) {
+  #pause .menu-col.panel { padding: 22px 30px; }
+  #pause .heading { font-size: 48px; margin-bottom: 6px; }
+  #pause .note { margin: 0 0 4px; }
+  #pause .setting { padding: 9px 0; }
+}
 .setting select, .setting input { accent-color: var(--red); }
 .range-ctl { display: flex; align-items: center; gap: 10px; }
 .range-val { min-width: 3ch; text-align: right; font: 600 14px var(--body); letter-spacing: 0; color: var(--ink); }

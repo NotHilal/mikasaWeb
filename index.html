@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>The Woods</title>
+    <title>Hunted Treasure</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,7 +17,7 @@
       <!-- loading -->
       <section id="loading" class="screen show">
         <div class="load-box">
-          <div class="load-title">The Woods</div>
+          <div class="load-title">Hunted Treasure</div>
           <div class="load-bar"><i id="load-fill"></i></div>
           <div class="load-label">Loading</div>
         </div>
@@ -27,11 +27,12 @@
       <section id="menu" class="screen">
         <div class="menu-col">
           <div class="brand"><span class="brand-mark"></span>Custom game</div>
-          <h1 class="title">The Woods</h1>
+          <h1 class="title">Hunted Treasure</h1>
           <p class="tagline">1v1 · One hunts · One searches</p>
           <nav class="menu-list big">
             <button data-go="create">Create game</button>
             <button data-go="join">Join game</button>
+            <button data-go="howto">How to play</button>
             <button data-go="settings">Settings</button>
           </nav>
         </div>
@@ -57,7 +58,7 @@
       <section id="lobby" class="screen">
         <div class="select-head">
           <div>
-            <div class="eyebrow">Custom game · The Woods</div>
+            <div class="eyebrow">Custom game · Hunted Treasure</div>
             <h2 class="heading xl">Choose your role</h2>
             <div class="note" id="role-note"></div>
           </div>
@@ -97,6 +98,32 @@
             <button id="leave-lobby" class="btn">Leave</button>
             <button id="start-game" class="btn lockin" disabled>Lock in</button>
             <button id="ready-game" class="btn lockin ready" disabled>Ready</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- how to play: one slide per thing to know, each with a short animation (src/howto.js) -->
+      <section id="howto" class="screen">
+        <div class="ht-panel">
+          <div class="ht-head">
+            <div><div class="eyebrow">How to play</div><div id="ht-role" class="ht-role"></div></div>
+            <div id="ht-count" class="ht-count"></div>
+          </div>
+          <div class="ht-body">
+            <div id="ht-art" class="ht-art"></div>
+            <div class="ht-info">
+              <h2 id="ht-name" class="heading"></h2>
+              <div id="ht-keys" class="ht-keys"></div>
+              <p id="ht-text" class="ht-text"></p>
+            </div>
+          </div>
+          <div class="ht-foot">
+            <div id="ht-dots" class="ht-dots"></div>
+            <div class="btn-row">
+              <button id="ht-close" class="btn">Close</button>
+              <button id="ht-back" class="btn">Back</button>
+              <button id="ht-next" class="btn primary">Next</button>
+            </div>
           </div>
         </div>
       </section>
@@ -170,7 +197,7 @@
       <section id="hud" class="screen">
         <div id="speedlines" class="speedlines"></div>
         <div class="crosshair"><i class="ch-t"></i><i class="ch-b"></i><i class="ch-l"></i><i class="ch-r"></i></div>
-        <div class="topbar">
+        <div class="topbar hs-only">
           <div class="tb-side seeker"><span id="tb-pages">0</span><small>pages</small></div>
           <div class="tb-time" id="tb-time">0:00</div>
           <div class="tb-side hunter"><small>of</small><span>5</span></div>
@@ -182,23 +209,31 @@
           <div class="escape-bar"><i id="escape-fill"></i></div>
           <div class="escape-time"><i id="escape-time"></i></div>
         </div>
-        <div id="pages" class="pages"></div>
-        <div id="page-text" class="page-text"></div>
+        <div id="pages" class="pages hs-only"></div>
+        <div id="page-text" class="page-text hs-only"></div>
         <div id="role-tag" class="role-tag"></div>
-        <canvas id="minimap" class="minimap"></canvas>
-        <div class="stamina"><i id="stamina-fill"></i></div>
+        <canvas id="minimap" class="minimap hs-only"></canvas>
+        <div class="stamina hs-only"><i id="stamina-fill"></i></div>
         <div id="hitmarker" class="hitmarker"></div>
         <div id="status" class="status"></div>
-        <div id="abilities" class="abilities"></div>
+        <div id="abilities" class="abilities hs-only"></div>
         <div id="ammo" class="ammo"></div>
+        <!-- the final duel (src/duel.js) -->
+        <!-- the best of 5, like the page counter: rounds won on each side, the round's time between -->
+        <div class="topbar duel-only">
+          <div class="tb-side seeker"><span id="score-seeker">0</span><small>Iso</small></div>
+          <div class="tb-time" id="duel-time">0:00</div>
+          <div class="tb-side hunter"><small>Slender</small><span id="score-hunter">0</span></div>
+        </div>
+        <div class="duel-sub duel-only"><span id="pips-seeker" class="dt-pips seeker"></span><span id="duel-round">Round 1 · Best of 5</span><span id="pips-hunter" class="dt-pips hunter"></span></div>
+        <div id="duel-hp" class="duel-hp duel-only"><div id="hp-v" class="v">100</div><div class="hp-bar"><i id="hp-fill"></i></div><div class="w">Health</div></div>
+        <div id="dmg" class="dmg"></div>
+        <div id="duel-banner" class="duel-banner"></div>
       </section>
 
+      <!-- the mouse isn't captured yet: a small hint, the game shows through (see takeMouse in main.js) -->
       <section id="click-to-play" class="screen">
-        <div class="center-msg">
-          <div class="eyebrow">Round starting</div>
-          <div class="big">Click to play</div>
-          <div class="note">Esc to pause</div>
-        </div>
+        <div class="ctp-hint"><span id="ctp-eyebrow">Round starting</span>Click or press a key to play · Esc pauses</div>
       </section>
 
       <section id="pause" class="screen">
@@ -250,6 +285,54 @@
             <button id="end-menu" class="btn">Main menu</button>
           </div>
           <p id="end-vote-note" class="end-vote-note"></p>
+        </div>
+      </section>
+
+      <!-- the end of the final duel -->
+      <section id="duel-end" class="screen">
+        <div class="end-banner">
+          <div class="end-line"></div>
+          <div class="eyebrow de-eyebrow">Final duel</div>
+          <div id="de-title" class="end-title"></div>
+          <div id="de-sub" class="end-sub"></div>
+          <div id="de-rounds" class="de-rounds"></div>
+          <div class="end-line"></div>
+          <div class="btn-row center">
+            <button id="de-again" class="btn primary">Try again 0/2</button>
+            <button id="de-continue" class="btn primary">Continue 0/2</button>
+            <button id="de-menu" class="btn">Main menu</button>
+          </div>
+          <p id="de-note" class="end-vote-note"></p>
+        </div>
+      </section>
+
+      <!-- the gift: the 5 pages are 5 pieces of a picture (src/gift.js) -->
+      <section id="puzzle" class="screen">
+        <div class="puzzle-head">
+          <div class="eyebrow">Your 5 pages</div>
+          <h2 id="puzzle-title" class="heading">Put the pieces together</h2>
+          <p id="puzzle-note" class="note"></p>
+        </div>
+        <div id="puzzle-board" class="puzzle-board"></div>
+        <div id="puzzle-tray" class="puzzle-tray"></div>
+        <div class="puzzle-foot"><button id="show-msg" class="btn lockin">Show message</button></div>
+      </section>
+
+      <section id="letter" class="screen">
+        <div class="letter">
+          <img id="letter-img" class="letter-img" alt="" />
+          <div id="letter-text" class="letter-text"></div>
+        </div>
+        <div class="btn-row center letter-foot"><button id="letter-menu" class="btn">Main menu</button></div>
+      </section>
+
+      <!-- the hunter, while the seeker opens the gift -->
+      <section id="gift-wait" class="screen">
+        <div class="center-msg">
+          <div class="eyebrow">Iso won the duel</div>
+          <div class="big">Her gift</div>
+          <div id="gw-note" class="note"></div>
+          <div class="btn-row center"><button id="gw-menu" class="btn">Main menu</button></div>
         </div>
       </section>
 

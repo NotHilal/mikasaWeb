@@ -18,6 +18,13 @@ export const PAGE_SPOTS = {
 };
 // Placeholder text for the 5 parts of the message (shown when a page is picked up).
 export const MESSAGE = ['Part one', 'Part two', 'Part three', 'Part four', 'Part five'];
+// The gift at the very end (Iso wins the final duel): the seeker puts the 5 pieces of `image`
+// together, then reads `message` (the 5 parts above, one per line, unless set here).
+// Without the image file, a placeholder picture says where to put it.
+export const GIFT = {
+  image: 'gift/picture.jpg',   // in public/
+  message: null,               // null: MESSAGE, one part per line
+};
 
 export const SEEKER = {
   eye: 1.65,        // camera height (m)
@@ -53,8 +60,40 @@ export const GUN = {
   bodyRadius: 0.34,  // ...this wide
   immuneMs: 3000,    // after a stun ends, the hunter can't be stunned again for this long
 };
+// The final duel (after the seeker finds every page): Iso's ultimate pulls both players into an
+// arena; best of 5, both with the Classic. Each keeps their character; hitboxes are measured from
+// the feet: the head a sphere [height, radius], body and legs upright cylinders [from, to, radius].
+export const DUEL = {
+  firstTo: 3,
+  hp: 150,
+  // damage by distance, like the real Classic: up to 30 m, then 30 to 50 m (and past that, which
+  // only the arena's far corners allow)
+  damage: [
+    { upTo: 30, head: 78, body: 26, legs: 22 },
+    { upTo: Infinity, head: 66, body: 22, legs: 18 },
+  ],
+  ammo: 12,
+  reloadMs: 1750,    // reloads by itself once empty
+  fireMs: 150,       // the fastest it fires (it's semi-automatic)
+  range: 80,
+  introMs: 5000,     // the countdown before the first round
+  betweenMs: 5000,   // the recap and countdown between rounds
+  endMs: 2500,       // after the deciding round, before the result screen
+  move: { walk: 5, jump: 5.2 }, // the same for both
+  hitbox: {
+    seeker: { head: [1.64, 0.14], body: [0.95, 1.52, 0.25], legs: [0.05, 0.95, 0.2] },
+    hunter: { head: [GUN.headCenter, GUN.headRadius], body: [1.3, GUN.bodyTop, GUN.bodyRadius], legs: [0.1, 1.3, 0.28] },
+  },
+  // a hexagon (apothem: metres from the centre to each side), high above the forest, out of sight of it
+  arena: { y: 400, apothem: 24, wall: 9 },
+};
+
 // cooldowns in seconds
 export const DART = { speed: 30, gravity: 6, radius: 30, pulses: 3, pulseGap: 2.2, revealMs: 2000, cooldown: 35 };
+// Stuck? After `afterMs` without taking a page (from the round's start or the last page taken), the
+// dart's scans also find pages: the closest one in range glows through the trees for `revealMs`
+// (on the seeker's screen only; the hunter is told a page was revealed, not where).
+export const PAGE_HINT = { afterMs: 240000, revealMs: 5000 };
 export const FLASH = { speed: 15, gravity: 7, fuse: 0.55, range: 30, closeRange: 4, nearPop: 2.5, fullMs: 2200, partialMs: 700, cooldown: 20 };
 export const DASH = { distance: 7, time: 0.2, cooldown: 12 };
 

@@ -327,11 +327,12 @@ export async function buildWorld(scene, manager) {
     // pin page meshes where pickPages chose; returns [{ mesh, pos, n }]
     placePages(chosen) {
       return chosen.map(({ pos, face, n }) => {
-        // the paper glows very faintly, so a sweep of the flashlight catches it from further away
+        // the paper glows just enough to make out a pale shape in the dark close by, but it takes
+        // the flashlight to really see it (PAGE_GLOW)
         const map = pageTexture(n);
         const mesh = new THREE.Mesh(pageGeo, new THREE.MeshStandardMaterial({
           map, color: 0xb0b0b0, roughness: 0.9, side: THREE.DoubleSide,
-          emissive: 0xffffff, emissiveMap: map, emissiveIntensity: 0.32,
+          emissive: 0xffffff, emissiveMap: map, emissiveIntensity: PAGE_GLOW,
         }));
         mesh.position.copy(pos);
         mesh.rotation.set(0, face, (pr2(n) - 0.5) * 0.3);
@@ -361,3 +362,4 @@ export async function buildWorld(scene, manager) {
 }
 
 const pr2 = (n) => rng(n * 977)();
+const PAGE_GLOW = 0.05; // the pages' own faint glow (it was 0.32: bright enough to spot them in the dark from far off)

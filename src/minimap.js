@@ -33,8 +33,8 @@ export function createMinimap(canvas, world) {
   b.beginPath(); b.arc(SIZE / 2, SIZE / 2, MAP.play * k, 0, Math.PI * 2); b.stroke();
 
   return {
-    // you: { x, z, yaw }; taken: [{ x, z }]
-    draw(me, taken) {
+    // you: { x, z, yaw }; taken: [{ x, z }]; left (dev only, F3): the pages still to find, [{ x, z, n }]
+    draw(me, taken, left = []) {
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.clearRect(0, 0, canvas.width, canvas.height);
       g.drawImage(bg, 0, 0);
@@ -42,6 +42,13 @@ export function createMinimap(canvas, world) {
       g.fillStyle = 'rgba(236, 232, 225, 0.9)';
       for (const p of taken) {
         g.save(); g.translate(px(p.x), pz(p.z)); g.rotate(Math.PI / 4); g.fillRect(-2.5, -2.5, 5, 5); g.restore();
+      }
+      g.font = '600 8px Barlow, sans-serif';
+      g.textAlign = 'center';
+      for (const p of left) {
+        g.fillStyle = '#ffd84d';
+        g.save(); g.translate(px(p.x), pz(p.z)); g.rotate(Math.PI / 4); g.fillRect(-3.5, -3.5, 7, 7); g.restore();
+        g.fillText(p.n, px(p.x), pz(p.z) - 6);
       }
       // the arrow is drawn pointing up (north, -z); turning by -yaw points it where you look
       g.save();

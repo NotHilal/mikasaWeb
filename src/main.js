@@ -13,6 +13,9 @@ import { hunterFigure, seekerFigure, addXray } from './figures.js';
 import { renderRolePortraits } from './portraits.js';
 import { drawRecap, recapStats } from './recap.js';
 import { Match } from './match.js';
+import { Duel, NAME } from './duel.js';
+import { openHowto, stepHowto, gotoHowto } from './howto.js';
+import { openPuzzle } from './gift.js';
 import { net } from './net.js';
 import { audio } from './audio.js';
 import { settings, saveSettings } from './settings.js';
@@ -69,7 +72,7 @@ viewmodel.visible = false;
 // ready: the guest has pressed Ready (the host can only start once they have). The host keeps
 // the real value and sends it with the lobby; the guest's copy follows it.
 const lobby = { host: false, hostRole: 'seeker', partner: false, ready: false };
-let match = null;
+let match = null; // what's being played: a Match (hide and seek) or a Duel (the final duel)
 const myRole = () => (lobby.host ? lobby.hostRole : lobby.hostRole === 'seeker' ? 'hunter' : 'seeker');
 
 function renderLobby() {
@@ -145,6 +148,8 @@ net.on('start', ({ seed, hostRole }) => {
 });
 net.on('bye', () => {
   lobby.partner = false;
+  // (the seeker opening the gift stays on it)
+  if (['puzzle', 'letter'].includes(screen())) return;
   if (match) endMatch();
   if (lobby.host) {
     toast('The other player left');
@@ -156,22 +161,107 @@ net.on('bye', () => {
     show('menu');
   }
 });
-// after a round, both players vote to go back to the lobby (1/2, 2/2); both votes and it happens
-const vote = { mine: false, theirs: false };
+// after a round, both players vote (1/2, 2/2) to go back to the lobby, or, when the seeker found
+// every page, on to the final duel; both votes and it happens
+const vote = { mine: false, theirs: false, duel: false };
 function renderVote() {
   const n = (vote.mine ? 1 : 0) + (vote.theirs ? 1 : 0);
   const btn = $('#end-lobby');
-  btn.textContent = `Back to lobby ${n}/2`;
+  btn.textContent = `${vote.duel ? 'Final duel' : 'Back to lobby'} ${n}/2`;
   btn.classList.toggle('voted', vote.mine);
   btn.classList.toggle('asked', vote.theirs && !vote.mine); // they're waiting on me
   $('#end-vote-note').textContent = vote.mine && !vote.theirs ? 'Waiting for your friend…'
-    : vote.theirs && !vote.mine ? 'Your friend wants a rematch' : '';
+    : vote.theirs && !vote.mine ? (vote.duel ? 'Your friend is ready for the duel' : 'Your friend wants a rematch') : '';
 }
 function checkVote() {
   renderVote();
-  if (vote.mine && vote.theirs && match) { endMatch(); show('lobby'); renderLobby(); }
+  if (!(vote.mine && vote.theirs && match)) return;
+  if (vote.duel) startDuel();
+  else { endMatch(); show('lobby'); renderLobby(); }
 }
 net.on('vote', ({ on }) => { if (!match) return; vote.theirs = !!on; checkVote(); });
+
+// --- the final duel ------------------------------------------------------------------------
+// At its end both vote again: Try again (Iso lost) or Continue (Iso won: the seeker opens the
+// gift). Main menu takes both players back to the menu.
+const dvote = { mine: false, theirs: false, kind: null };
+function startDuel() {
+  endMatch();
+  Object.assign(dvote, { mine: false, theirs: false, kind: null });
+  match = new Duel({ engine, player, flashlight, viewmodel, effects }, { role: myRole(), host: lobby.host }, onDuelEnd);
+  $('#ctp-eyebrow').textContent = 'Final duel';
+  takeMouse();
+}
+function onDuelEnd({ winner, score, rounds }) {
+  document.exitPointerLock();
+  const isoWon = winner === 'seeker', won = winner === myRole();
+  dvote.kind = isoWon ? 'continue' : 'again';
+  $('#de-title').textContent = won ? 'Victory' : 'Defeat';
+  $('#de-sub').textContent = `${NAME.seeker} ${isoWon ? 'wins' : 'lost'} the final duel · ${score.seeker} – ${score.hunter}`;
+  $('#de-rounds').innerHTML = rounds.map((w, i) => `<span class="${w}">Round ${i + 1} · ${NAME[w]}</span>`).join('');
+  $('#duel-end').classList.toggle('win', won);
+  $('#duel-end').classList.toggle('lose', !won);
+  $('#de-again').style.display = isoWon ? 'none' : '';
+  $('#de-menu').style.display = isoWon ? 'none' : '';
+  $('#de-continue').style.display = isoWon ? '' : 'none';
+  renderDuelVote();
+  setTimeout(() => { if (match?.over) show('duel-end'); }, 400);
+}
+function renderDuelVote() {
+  const n = (dvote.mine ? 1 : 0) + (dvote.theirs ? 1 : 0);
+  const btn = dvote.kind === 'continue' ? $('#de-continue') : $('#de-again');
+  btn.textContent = `${dvote.kind === 'continue' ? 'Continue' : 'Try again'} ${n}/2`;
+  btn.classList.toggle('voted', dvote.mine);
+  btn.classList.toggle('asked', dvote.theirs && !dvote.mine);
+  $('#de-note').textContent = dvote.mine && !dvote.theirs ? 'Waiting for your friend…'
+    : dvote.theirs && !dvote.mine ? (dvote.kind === 'continue' ? 'Your friend pressed Continue' : 'Your friend wants to try again') : '';
+}
+function checkDuelVote() {
+  renderDuelVote();
+  if (!(dvote.mine && dvote.theirs && match?.over)) return;
+  if (dvote.kind === 'again') startDuel();
+  else openGift();
+}
+net.on('dvote', ({ on }) => { if (!match?.over) return; dvote.theirs = !!on; checkDuelVote(); });
+net.on('dmenu', () => {
+  if (!match?.over) return;
+  leaveToMenu();
+  toast('Your friend went back to the menu');
+});
+
+// Dev only (npm run dev, never in a build): F6 jumps straight into the final duel, for testing. In a
+// room with the other player both go (with the roles picked in the lobby); on your own you get the
+// arena to yourself, as Iso.
+if (import.meta.env.DEV) {
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'F6') return;
+    e.preventDefault(); // (the browser's own F6 goes to the address bar)
+    if (lobby.partner) net.send('devduel', {});
+    else if (!net.room) { lobby.host = true; lobby.hostRole = 'seeker'; }
+    startDuel();
+  });
+  net.on('devduel', () => startDuel());
+}
+
+// the gift: the seeker puts the 5 pieces together and reads the message; the hunter waits
+let closePuzzle = null;
+function openGift() {
+  endMatch();
+  if (myRole() === 'seeker') {
+    show('puzzle');
+    openPuzzle({
+      onDone: () => net.send('gift', { stage: 'done' }),
+      onRead: () => { show('letter'); net.send('gift', { stage: 'read' }); },
+    }).then((close) => { closePuzzle = close; });
+  } else {
+    $('#gw-note').textContent = 'She is putting the 5 pieces together…';
+    show('gift-wait');
+  }
+}
+net.on('gift', ({ stage }) => {
+  if (screen() !== 'gift-wait') return;
+  $('#gw-note').textContent = stage === 'read' ? 'She is reading the message.' : 'The picture is whole. Now the message…';
+});
 
 // --- dropped connections: the round pauses for both players until everyone's back ------
 const WAIT_MS = 60000; // give up on a dropped player after this long
@@ -209,7 +299,7 @@ function checkConnection() {
   } else if (!lost && match.pausedAt) {
     clearInterval(waitTick);
     match.setPaused(false);
-    show('click-to-play');
+    takeMouse();
     toast('Everyone is back. Round resumed');
   }
 }
@@ -285,6 +375,7 @@ function startMatch(seed) {
   lobby.ready = false; // back in the lobby afterwards, the guest readies up again
   match = new Match({ engine, world, player, flashlight, viewmodel, hunterArms, effects }, { seed, role: myRole() }, (result, recap) => {
     document.exitPointerLock();
+    vote.duel = result === 'pages'; // every page found: the final duel comes next
     const won = (result === 'pages') === (myRole() === 'seeker');
     $('#end-title').textContent = won ? 'Victory' : 'Defeat';
     $('#end-sub').textContent = result === 'pages' ? 'All 5 pages found' : 'The seeker was caught';
@@ -295,11 +386,14 @@ function startMatch(seed) {
       `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`).join('');
     setTimeout(() => { show('end'); drawRecap($('#recap-map'), world, recap); }, 600);
   });
-  show('click-to-play');
+  $('#ctp-eyebrow').textContent = 'Round starting';
+  takeMouse();
 }
 
 function endMatch() {
   clearInterval(waitTick);
+  closePuzzle?.();
+  closePuzzle = null;
   match?.dispose();
   match = null;
   document.exitPointerLock();
@@ -314,6 +408,7 @@ document.addEventListener('click', (e) => {
   if (go === 'create') createGame();
   else if (go === 'join') { show('join'); $('#join-code').focus(); }
   else if (go === 'settings') openSettings();
+  else if (go === 'howto') { openHowto(); show('howto'); }
   else show(go);
 });
 document.addEventListener('pointerdown', () => audio.start(), { once: true });
@@ -397,10 +492,36 @@ $('#end-lobby').onclick = () => {
   net.send('vote', { on: vote.mine });
   checkVote();
 };
+$('#de-again').onclick = $('#de-continue').onclick = () => {
+  dvote.mine = !dvote.mine;
+  net.send('dvote', { on: dvote.mine });
+  checkDuelVote();
+};
+$('#de-menu').onclick = () => { net.send('dmenu', {}); leaveToMenu(); };
+$('#letter-menu').onclick = leaveToMenu;
+$('#gw-menu').onclick = leaveToMenu;
 
-// pointer lock: click to play, Esc pauses
-$('#click-to-play').onclick = () => canvas.requestPointerLock();
-$('#resume').onclick = () => canvas.requestPointerLock();
+// how to play
+$('#ht-next').onclick = () => { if (!stepHowto(1)) show('menu'); };
+$('#ht-back').onclick = () => stepHowto(-1);
+$('#ht-close').onclick = () => show('menu');
+$('#ht-dots').onclick = (e) => { const i = e.target.closest('[data-ht]')?.dataset.ht; if (i !== undefined) gotoHowto(+i); };
+
+// Pointer lock (the captured mouse); Esc pauses. Browsers only allow taking the mouse right after
+// a click or a key press, so when a round starts or carries on it's taken at once if this player's
+// own click started it (Lock in, the last vote, Resume); otherwise a small hint shows (no screen to
+// click through), and the next click or key press (any but Esc) takes it, so just starting to
+// walk does.
+function lockMouse() {
+  try { canvas.requestPointerLock()?.catch?.(() => {}); } catch {}
+}
+function takeMouse() {
+  show('click-to-play');
+  if (navigator.userActivation?.isActive ?? true) lockMouse();
+}
+$('#click-to-play').onclick = lockMouse;
+addEventListener('keydown', (e) => { if (screen() === 'click-to-play' && e.code !== 'Escape') lockMouse(); });
+$('#resume').onclick = lockMouse;
 document.addEventListener('pointerlockchange', () => {
   if (!match || match.over || match.pausedAt) return;
   // drop focus from the pause slider, so arrow keys in game don't change the sensitivity
@@ -571,10 +692,16 @@ addEventListener('keydown', (e) => {
   if (at === 'controls') {
     if ($('#confirm').classList.contains('show')) $('#confirm').classList.remove('show'); // Esc = Cancel
     else closeControls();
-  } else if (at === 'settings' || at === 'join') show('menu');
+  } else if (at === 'settings' || at === 'join' || at === 'howto') show('menu');
   // the pause menu resumes when Esc is *released*: taking the mouse back while the key is still
   // down lets the browser read that same press as "free the mouse", which paused again at once
   else if (at === 'pause' && performance.now() - pausedAt > 300) escDownOnPause = true;
+});
+// arrow keys step through How to play
+addEventListener('keydown', (e) => {
+  if (screen() !== 'howto') return;
+  if (e.code === 'ArrowRight' && !stepHowto(1)) show('menu');
+  if (e.code === 'ArrowLeft') stepHowto(-1);
 });
 addEventListener('keyup', (e) => {
   if (e.code !== 'Escape' || !escDownOnPause) return;
@@ -621,4 +748,4 @@ else show('menu');
 setTimeout(renderRolePortraits, 300);
 
 // for headless tests
-window.__game = { THREE, engine, world, player, net, lobby, flashlight, viewmodel, effects, get match() { return match; }, startMatch };
+window.__game = { THREE, engine, world, player, net, lobby, flashlight, viewmodel, effects, get match() { return match; }, startMatch, startDuel };

@@ -3,20 +3,20 @@
 // reveals, and the end of the round.
 import * as THREE from 'three';
 import { net } from './net.js';
-import { hunterFigure, seekerFigure, addXray, setStunGlow } from './figures.js';
+import { hunterFigure, seekerFigure, addXray, addShield, setStunGlow } from './figures.js';
 import { audio } from './audio.js';
-import { $, flash, hud } from './ui.js';
+import { $, flash, hud, toast } from './ui.js';
 import { settings } from './settings.js';
 import { createMinimap } from './minimap.js';
 import { actionFor, key, label, mouseCode } from './keys.js';
-import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT } from './config.js';
+import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT } from './config.js';
 
 const INTERP_MS = 110; // the other player is drawn this far in the past, to smooth over network jitter
 const v3 = (a) => new THREE.Vector3().fromArray(a);
 const arr = (v) => [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)];
 const now = () => performance.now();
 // first distance along a ray (unit dir) where it enters a sphere, or null
-function raySphere(o, d, c, r) {
+export function raySphere(o, d, c, r) {
   const ox = o.x - c.x, oy = o.y - c.y, oz = o.z - c.z;
   const b = ox * d.x + oy * d.y + oz * d.z, cc = ox * ox + oy * oy + oz * oz - r * r;
   const disc = b * b - cc;
@@ -27,7 +27,7 @@ function raySphere(o, d, c, r) {
 
 // first distance along a ray where it enters an upright cylinder (centre x,z; radius r;
 // from y0 to y1), or null
-function rayCylinder(o, d, cx, cz, r, y0, y1) {
+export function rayCylinder(o, d, cx, cz, r, y0, y1) {
   const ox = o.x - cx, oz = o.z - cz;
   const a = d.x * d.x + d.z * d.z;
   if (a < 1e-6) return null; // straight up or down
@@ -40,6 +40,35 @@ function rayCylinder(o, d, cx, cz, r, y0, y1) {
     if (t > 0 && y >= y0 && y <= y1) return t;
   }
   return null;
+}
+
+// where the other player is now, from their latest position updates ({ t, x, y, z, yaw, pitch, … },
+// oldest first), interpolated INTERP_MS in the past; null before the first one
+export function remoteAt(s) {
+  if (!s.length) return null;
+  const t = now() - INTERP_MS;
+  let i = s.length - 1;
+  while (i > 0 && s[i - 1].t > t) i--;
+  const b = s[i], a = s[Math.max(0, i - 1)];
+  if (a === b || t >= b.t) return b;
+  const k = THREE.MathUtils.clamp((t - a.t) / (b.t - a.t), 0, 1);
+  let dy = b.yaw - a.yaw;
+  dy = ((dy + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+  return {
+    x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k,
+    yaw: a.yaw + dy * k, pitch: a.pitch + (b.pitch - a.pitch) * k, fl: b.fl,
+  };
+}
+
+// Dev only (npm run dev, never in a build): F3 shows every page still to find on the minimap.
+let devPages = false;
+if (import.meta.env.DEV) {
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'F3') return;
+    e.preventDefault(); // (the browser's own F3 is Find)
+    devPages = !devPages;
+    toast(`Dev: pages on the map ${devPages ? 'on' : 'off'}`);
+  });
 }
 
 const COOLDOWN = { dart: DART.cooldown, flash: FLASH.cooldown, dash: DASH.cooldown, tp: TELEPORT.cooldown, eye: EYE.cooldown, grab: GRAB.cooldown };
@@ -77,6 +106,7 @@ export class Match {
     this.stunnedUntil = 0;      // hunter: frozen until
     this.immuneUntil = 0;       // hunter: can't be stunned again until
     this.remoteStunUntil = 0;   // seeker: draw the hunter glowing red until
+    this.remoteImmuneUntil = 0; // seeker: the hunter can't be stunned (his shield shows) until
     this.revealUntil = 0;       // the other player shows through trees until
     this.meRevealedUntil = 0;   // I'm revealed (warning) until
     this.blindUntil = 0;
@@ -84,6 +114,10 @@ export class Match {
     this.dread = 0;             // seeker: 0..1, how close/visible the hunter is (static + heartbeat)
     this.beatT = 0;
     this.startedAt = now();
+    // stuck without a page for a while: the dart finds pages too (see PAGE_HINT)
+    this.lastPageAt = this.startedAt;
+    this.hintShown = false;     // told the seeker the dart can find pages now
+    this.pageReveal = null;     // { page, until }: the page glowing through the trees
     // for the end-of-round recap: both paths, the closest the hunter got, stuns landed
     this.track = { seeker: [], hunter: [] };
     this.trackT = 0;
@@ -105,6 +139,7 @@ export class Match {
     this.remote = role === 'seeker' ? hunterFigure() : seekerFigure();
     this.remote.visible = false;
     addXray(this.remote);
+    if (role === 'seeker') addShield(this.remote, GUN.headCenter + GUN.headRadius);
     engine.scene.add(this.remote);
 
     // the hunter sees in the dark (dimly); the seeker relies on the flashlight
@@ -143,9 +178,10 @@ export class Match {
       net.on('caught', () => this.finish('caught', false)),
       net.on('fx', (d) => this.remoteFx(d)),
       net.on('hit', ({ head }) => this.onHit(!!head)),
-      net.on('stun', ({ ok, ms, head }) => this.onStunReply(ok, ms, head)),
+      net.on('stun', ({ ok, ms, head, left }) => this.onStunReply(ok, ms, head, left)),
       net.on('grab', ({ n }) => this.onGrabbed(n)),
       net.on('escaped', () => this.onEscaped()),
+      net.on('pagehint', () => { if (role === 'hunter') this.status('A page was revealed', 2000); }),
       net.on('revealed', ({ ms }) => {
         this.meRevealedUntil = now() + ms;
         audio.play('revealed');
@@ -229,10 +265,12 @@ export class Match {
     // push every running timer back by the time we were frozen
     const gap = now() - this.pausedAt;
     this.pausedAt = 0;
-    for (const k of ['startedAt', 'stunnedUntil', 'immuneUntil', 'remoteStunUntil', 'revealUntil', 'meRevealedUntil', 'blindUntil', 'reloadUntil']) {
+    for (const k of ['startedAt', 'stunnedUntil', 'immuneUntil', 'remoteStunUntil', 'remoteImmuneUntil', 'revealUntil', 'meRevealedUntil', 'blindUntil', 'reloadUntil']) {
       if (this[k]) this[k] += gap;
     }
     if (this.tpCast) this.tpCast.until += gap;
+    this.lastPageAt += gap;
+    if (this.pageReveal) this.pageReveal.until += gap;
     if (this.grab) { this.grab.start += gap; this.grab.until += gap; }
     this.snaps = []; // the other player's old positions; fresh ones follow at once
     this.player.enabled = !this.over;
@@ -269,6 +307,9 @@ export class Match {
     p.taken = true;
     p.mesh.visible = false;
     this.found++;
+    this.lastPageAt = now(); // (the wait for the dart to find pages starts over)
+    this.hintShown = false;
+    if (this.pageReveal?.page === p) this.pageReveal = null;
     this.showCount();
     if (mine) {
       audio.page();
@@ -336,7 +377,8 @@ export class Match {
   onHit(head) {
     if (this.role !== 'hunter' || this.over) return;
     const t = now();
-    if (t < this.stunnedUntil || t < this.immuneUntil) { this.send('stun', { ok: false }); return; }
+    // (the reply says how long it lasts, so the seeker's screen shows it even if a message was missed)
+    if (t < this.stunnedUntil || t < this.immuneUntil) { this.send('stun', { ok: false, left: Math.max(this.stunnedUntil, this.immuneUntil) - t }); return; }
     const ms = head ? GUN.headStunMs : GUN.bodyStunMs;
     this.stunnedUntil = t + ms;
     this.shoved = false;
@@ -348,14 +390,16 @@ export class Match {
   }
 
   // seeker side: did my hit stun him?
-  onStunReply(ok, ms, head) {
+  onStunReply(ok, ms, head, left = 0) {
     if (ok) {
       this.stuns++;
       this.remoteStunUntil = now() + ms;
+      this.remoteImmuneUntil = this.remoteStunUntil + GUN.immuneMs;
       this.hitmarker(true);
       this.status(head ? 'Headshot · stunned 4s' : 'Stunned 2s', 1500);
       audio.play('stun');
     } else {
+      this.remoteImmuneUntil = Math.max(this.remoteImmuneUntil, now() + left);
       this.status('Resisted', 1000);
     }
   }
@@ -380,6 +424,7 @@ export class Match {
       onPulse: (p) => {
         audio.play('scan', this.at(p));
         if (!mine) return;
+        this.dartFindsPage(p);
         // reveal the hunter if he's in range (the scan goes through trees, like sonar:
         // in a forest this dense a clear line of sight is rare)
         const rs = this.remoteState();
@@ -387,6 +432,41 @@ export class Match {
         if (new THREE.Vector3(rs.x, rs.y + 1.5, rs.z).distanceTo(p) < DART.radius) this.reveal(DART.revealMs);
       },
     });
+  }
+
+  // after PAGE_HINT.afterMs without a page, a dart scan shows the closest page in its range
+  dartFindsPage(at) {
+    if (now() - this.lastPageAt < PAGE_HINT.afterMs) return;
+    let best = null, bestD = DART.radius;
+    for (const p of this.pages) {
+      if (p.taken) continue;
+      const d = p.pos.distanceTo(at);
+      if (d < bestD) { best = p; bestD = d; }
+    }
+    if (!best) return;
+    const fresh = this.pageReveal?.page !== best || now() > this.pageReveal.until;
+    this.pageReveal = { page: best, until: now() + PAGE_HINT.revealMs };
+    if (!fresh) return;
+    this.status('Page revealed', 1500);
+    audio.play('ready');
+    this.send('pagehint', {});
+  }
+
+  // a page glowing through the trees: a bright copy drawn over everything, with a halo
+  pageGlow(p) {
+    if (p.glow) return p.glow;
+    const g = new THREE.Group();
+    const paper = new THREE.Mesh(p.mesh.geometry, new THREE.MeshBasicMaterial({
+      map: p.mesh.material.map, color: 0xc8fff4, transparent: true, depthTest: false, depthWrite: false, fog: false, side: THREE.DoubleSide,
+    }));
+    const halo = this.effects.sprite(0x3fe0c5, 2.8, 0.8); // (big enough to spot from across a scan)
+    halo.material.depthTest = false;
+    halo.material.fog = false;
+    g.add(paper, halo);
+    g.traverse((o) => { o.renderOrder = 999; });
+    p.mesh.add(g);
+    p.glow = g;
+    return g;
   }
 
   useFlash() {
@@ -800,22 +880,7 @@ export class Match {
   }
 
   // where the other player is now (interpolated), or null before the first update
-  remoteState() {
-    const s = this.snaps;
-    if (!s.length) return null;
-    const t = now() - INTERP_MS;
-    let i = s.length - 1;
-    while (i > 0 && s[i - 1].t > t) i--;
-    const b = s[i], a = s[Math.max(0, i - 1)];
-    if (a === b || t >= b.t) return b;
-    const k = THREE.MathUtils.clamp((t - a.t) / (b.t - a.t), 0, 1);
-    let dy = b.yaw - a.yaw;
-    dy = ((dy + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
-    return {
-      x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k,
-      yaw: a.yaw + dy * k, pitch: a.pitch + (b.pitch - a.pitch) * k, fl: b.fl,
-    };
-  }
+  remoteState() { return remoteAt(this.snaps); }
 
   sendState() {
     const p = this.player, r = (v) => Math.round(v * 100) / 100;
@@ -900,7 +965,13 @@ export class Match {
       r.userData.animate?.(dt, this.remoteSpeed, time, this.pose);
       r.userData.xray.visible = t < this.revealUntil;
       r.userData.skin?.update(time); // the glow in the Classic's mouth
-      if (this.role === 'seeker') setStunGlow(r, t < this.remoteStunUntil ? 0.6 + 0.4 * Math.sin(time * 14) : 0);
+      if (this.role === 'seeker') {
+        setStunGlow(r, t < this.remoteStunUntil ? 0.6 + 0.4 * Math.sin(time * 14) : 0);
+        // his shield while he's immune: fades in, and flickers in its last half second
+        const left = t < this.remoteStunUntil ? 0 : this.remoteImmuneUntil - t;
+        const k = left <= 0 ? 0 : Math.min(1, (GUN.immuneMs - left) / 150) * (left < 600 ? 0.35 + 0.65 * (Math.sin(time * 38) > 0) : 1);
+        r.userData.shield(k, time);
+      }
       if (this.role === 'hunter') {
         // the seeker's torch lights my world too
         flashlight.on = !!rs.fl;
@@ -922,7 +993,25 @@ export class Match {
       this.setPrompt(this.canGrab(rs) ? `<b>${label('grab')}</b> Grab` : null);
     }
 
-    if (this.role === 'seeker') this.updateDread(dt, rs);
+    if (this.role === 'seeker') {
+      this.updateDread(dt, rs);
+      // the dart can find pages now: say so once
+      if (!this.hintShown && !this.over && t - this.lastPageAt >= PAGE_HINT.afterMs) {
+        this.hintShown = true;
+        this.status('Recon can now find pages', 3500);
+        audio.play('ready');
+      }
+      // the revealed page: fades out over its last half second
+      for (const p of this.pages) {
+        const left = this.pageReveal?.page === p ? this.pageReveal.until - t : 0;
+        if (left > 0) {
+          const g = this.pageGlow(p), k = Math.min(1, left / 500);
+          g.visible = true;
+          g.children[0].material.opacity = 0.9 * k;
+          g.children[1].material.opacity = (0.55 + 0.25 * Math.sin(time * 6)) * k;
+        } else if (p.glow) p.glow.visible = false;
+      }
+    }
     if (!this.over) this.record(rs, dt);
 
     if (this.role === 'seeker') {
@@ -953,7 +1042,8 @@ export class Match {
     this.mapT -= dt;
     if (this.mapT <= 0) {
       this.mapT = 0.1;
-      this.minimap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw }, this.pages.filter((p) => p.taken).map((p) => p.pos));
+      this.minimap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw }, this.pages.filter((p) => p.taken).map((p) => p.pos),
+        devPages ? this.pages.filter((p) => !p.taken).map((p) => ({ x: p.pos.x, z: p.pos.z, n: p.n })) : []);
     }
 
     // round timer in the top bar
@@ -1018,6 +1108,7 @@ export class Match {
       this.engine.scene.remove(p.mesh);
       p.mesh.material.map.dispose();
       p.mesh.material.dispose();
+      p.glow?.children.forEach((o) => o.material.dispose());
     }
     this.engine.scene.remove(this.remote, this.marker);
     this.effects.clear();

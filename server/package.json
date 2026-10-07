@@ -2,7 +2,7 @@
   "name": "woods-relay",
   "private": true,
   "type": "module",
-  "description": "WebSocket relay for The Woods (2-player rooms)",
+  "description": "WebSocket relay for Hunted Treasure (2-player rooms)",
   "scripts": { "start": "node relay.mjs" },
   "dependencies": { "ws": "^8.21.3" }
 }

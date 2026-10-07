@@ -105,6 +105,14 @@ const SOUNDS = {
     noiseHit(d, t + 0.19, { type: 'lowpass', freq: 130, attack: 0.005, decay: 0.12, vol: 0.7 });
   },
   ready(d, t) { tone(d, t, { from: 1320, decay: 0.15, vol: 0.06 }); },
+  // the final duel: being hit, landing a headshot (a bright ding), a kill, the countdown, rounds won and lost
+  hurt(d, t) { noiseHit(d, t, { type: 'lowpass', freq: 700, decay: 0.15, vol: 0.9 }); tone(d, t, { from: 220, to: 110, decay: 0.15, vol: 0.25 }); },
+  headshot(d, t) { tone(d, t, { from: 2100, decay: 0.35, vol: 0.14 }); tone(d, t, { from: 3150, decay: 0.25, vol: 0.06 }); },
+  kill(d, t) { tone(d, t, { type: 'triangle', from: 660, decay: 0.12, vol: 0.18 }); tone(d, t + 0.1, { type: 'triangle', from: 990, decay: 0.3, vol: 0.18 }); },
+  tick(d, t) { tone(d, t, { type: 'square', from: 1000, decay: 0.05, vol: 0.05 }); },
+  go(d, t) { tone(d, t, { type: 'square', from: 1500, decay: 0.25, vol: 0.07 }); },
+  roundWin(d, t) { [523, 659, 784].forEach((f, i) => tone(d, t + i * 0.09, { type: 'triangle', from: f, decay: 0.5, vol: 0.14 })); },
+  roundLose(d, t) { [392, 311, 233].forEach((f, i) => tone(d, t + i * 0.12, { type: 'triangle', from: f, decay: 0.6, vol: 0.14 })); },
   deny(d, t) { tone(d, t, { type: 'square', from: 180, decay: 0.12, vol: 0.06 }); },
 };
 

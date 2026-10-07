@@ -202,7 +202,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 /* overlays */
 .center-msg { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; width: min(600px, 90vw); }
 .center-msg .big { font: 400 clamp(60px, 8vw, 104px)/0.9 var(--head); letter-spacing: 0.04em; text-transform: uppercase; }
-#click-to-play { background: rgba(15, 25, 35, 0.45); cursor: pointer; }
+#click-to-play { background: transparent; cursor: pointer; }
+.ctp-hint {
+  position: absolute; left: 50%; top: calc(50% + 64px); transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  padding: 6px 14px; background: rgba(15, 25, 35, 0.75); border-left: 3px solid var(--red);
+  font: 600 13px var(--cond); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink); animation: blink 2s ease-in-out infinite;
+}
+.ctp-hint span { color: var(--red); margin-right: 10px; }
 #waiting { background: rgba(15, 25, 35, 0.7); }
 
 /* round end banner */
@@ -320,3 +326,120 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 /* minimap, top left under the role tag */
 .minimap { position: absolute; top: 46px; left: 20px; width: 168px; height: 168px; opacity: 0.9; pointer-events: none; }
 @media (max-height: 560px) { .minimap { width: 120px; height: 120px; } }
+
+/* --- how to play --- */
+#howto { background: rgba(8, 13, 19, 0.82); backdrop-filter: blur(4px); }
+#howto.show { display: grid; place-items: center; padding: 16px; overflow-y: auto; }
+.ht-panel { width: min(900px, 100%); background: rgba(15, 25, 35, 0.92); border: 1px solid var(--line); border-top: 3px solid var(--red); padding: 24px 28px 22px; }
+.ht-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.ht-role { font: 600 13px var(--cond); letter-spacing: 0.24em; text-transform: uppercase; color: var(--muted); }
+.ht-role.seeker { color: var(--teal); }
+.ht-role.hunter { color: #a87bff; }
+.ht-count { font: 600 13px var(--cond); letter-spacing: 0.2em; color: var(--muted); }
+.ht-body { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 26px; align-items: center; margin: 16px 0 20px; }
+.ht-art { aspect-ratio: 16 / 10; border: 1px solid var(--line); background: #0b141d; overflow: hidden; }
+.ht-svg { display: block; width: 100%; height: 100%; }
+.ht-t { font-family: var(--cond); font-weight: 600; letter-spacing: 0.12em; }
+.ht-info .heading { margin-bottom: 10px; }
+.ht-keys { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.ht-keys:empty { display: none; }
+.ht-keys i { font: 600 13px var(--cond); font-style: normal; letter-spacing: 0.08em; padding: 4px 10px; background: var(--ink); color: var(--navy); }
+.ht-text { font-size: 16px; line-height: 1.55; color: rgba(236, 232, 225, 0.82); margin: 0; }
+.ht-text b { color: var(--ink); background: rgba(236, 232, 225, 0.12); padding: 0 6px; font-weight: 600; white-space: nowrap; }
+.ht-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.ht-dots { display: flex; gap: 6px; }
+.ht-dots button { width: 22px; height: 4px; border: 0; padding: 0; background: rgba(236, 232, 225, 0.2); cursor: pointer; }
+.ht-dots button.on { background: var(--red); }
+@media (max-width: 720px) { .ht-body { grid-template-columns: 1fr; gap: 14px; } .ht-panel { padding: 18px; } .ht-info .heading { font-size: 44px; } }
+
+/* --- the final duel --- */
+#hud .duel-only, #hud.duel .hs-only { display: none; }
+#hud.duel .duel-only { display: flex; }
+/* under the score: the rounds won as pips, and which round this is */
+.duel-sub { position: absolute; top: 66px; left: 50%; transform: translateX(-50%); align-items: center; gap: 12px; white-space: nowrap;
+  font: 600 11px var(--cond); letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); }
+.dt-pips { display: flex; gap: 5px; }
+.dt-pips.seeker { color: var(--teal); }
+.dt-pips.hunter { color: var(--red); }
+.dt-pips i { width: 8px; height: 8px; border: 1.5px solid currentColor; transform: rotate(45deg); }
+.dt-pips i.on { background: currentColor; }
+.duel-hp { position: absolute; left: 30px; bottom: 22px; flex-direction: column; padding: 8px 14px 6px; background: rgba(15, 25, 35, 0.6); border-bottom: 3px solid var(--teal); min-width: 150px; }
+.duel-hp .v { font: 400 58px/0.9 var(--head); }
+.duel-hp .hp-bar { height: 4px; background: rgba(236, 232, 225, 0.15); margin: 6px 0 4px; }
+.duel-hp .hp-bar i { display: block; height: 100%; width: 100%; background: var(--teal); transition: width 0.15s; }
+.duel-hp .w { font: 600 11px var(--cond); letter-spacing: 0.26em; text-transform: uppercase; color: var(--muted); }
+.duel-hp.low { border-color: var(--red); }
+.duel-hp.low .v { color: var(--red); }
+.duel-hp.low .hp-bar i { background: var(--red); }
+.ammo .n small { font-size: 26px; color: var(--muted); margin-left: 2px; }
+/* damage dealt, floating up from the crosshair */
+.dmg { position: absolute; left: calc(50% + 18px); top: calc(50% - 30px); font: 400 30px/1 var(--head); letter-spacing: 0.06em; opacity: 0; text-shadow: 0 2px 8px #000; pointer-events: none; }
+.dmg.show { animation: dmg 0.7s ease-out; }
+.dmg.head { color: #ffd84d; font-size: 38px; }
+.dmg.legs { color: rgba(236, 232, 225, 0.8); }
+@keyframes dmg { 0% { opacity: 1; transform: translateY(6px) scale(1.25); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-26px); } }
+/* the panel in the middle: the intro, and the recap between rounds */
+.duel-banner {
+  position: absolute; left: 50%; top: 20%; transform: translateX(-50%); width: min(620px, calc(100vw - 32px)); text-align: center;
+  padding: 18px 24px 20px; background: rgba(15, 25, 35, 0.86); border-top: 3px solid #a87bff; backdrop-filter: blur(4px);
+  opacity: 0; transition: opacity 0.25s; pointer-events: none;
+}
+.duel-banner.show { opacity: 1; }
+.duel-banner .eyebrow { color: #b994ff; }
+.db-title { font: 400 clamp(48px, 7vw, 76px)/0.95 var(--head); letter-spacing: 0.06em; text-transform: uppercase; }
+.db-title.win { color: var(--teal); }
+.db-title.lose { color: var(--red); }
+.db-sub { font: 600 14px var(--cond); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin: 6px 0 4px; }
+.db-count { font: 400 88px/1 var(--head); margin-top: 6px; min-height: 88px; }
+.db-stats { display: grid; grid-template-columns: repeat(4, auto); justify-content: center; gap: 10px 28px; margin: 16px 0 6px; text-align: left; }
+.db-stats .stat .v { font-size: 34px; }
+.db-next { font: 600 14px var(--cond); letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); margin-top: 10px; }
+.db-next b { color: var(--ink); font: 400 26px var(--head); margin-left: 6px; }
+@media (max-width: 640px) { .db-stats { grid-template-columns: repeat(2, auto); } }
+/* the end of the duel */
+#duel-end { background: rgba(11, 7, 22, 0.6); }
+#duel-end.win .end-banner { color: var(--teal); }
+#duel-end.lose .end-banner { color: var(--red); }
+.de-eyebrow { margin-top: 16px; color: #b994ff; }
+.de-rounds { display: flex; justify-content: center; gap: 8px; margin: 0 0 22px; flex-wrap: wrap; }
+.de-rounds span { font: 600 12px var(--cond); letter-spacing: 0.16em; text-transform: uppercase; padding: 5px 10px; border: 1px solid currentColor; }
+.de-rounds span.seeker { color: var(--teal); }
+.de-rounds span.hunter { color: var(--red); }
+#duel-end .btn.voted { background: transparent; color: var(--teal); border-color: var(--teal); }
+#duel-end .btn.asked { animation: go 1.4s ease-in-out infinite; }
+
+/* --- the gift: the puzzle, then the message --- */
+#puzzle, #letter { background: radial-gradient(ellipse at 50% 30%, rgba(155, 92, 255, 0.25), transparent 70%), rgba(10, 8, 20, 0.9); }
+#puzzle.show { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px; overflow: hidden; }
+.puzzle-head { text-align: center; }
+.puzzle-head .heading { margin: 0; font-size: clamp(40px, 6vw, 60px); }
+.puzzle-head .note { margin: 4px 0 0; }
+.puzzle-board { position: relative; flex: none; background-size: cover; outline: 1px dashed rgba(236, 232, 225, 0.3); outline-offset: 4px; }
+/* the board shows only a faint ghost of the picture until the pieces cover it */
+.puzzle-board::before { content: ''; position: absolute; inset: 0; background: rgba(10, 8, 20, 0.9); }
+.puzzle-board.done { outline: 2px solid var(--teal); box-shadow: 0 0 40px rgba(63, 224, 197, 0.45); transition: box-shadow 0.6s; }
+.puzzle-tray { flex: none; width: 100%; }
+.puzzle-foot { min-height: 64px; display: grid; place-items: center; }
+#show-msg { opacity: 0; transform: translateY(8px); pointer-events: none; transition: opacity 0.4s, transform 0.4s; }
+#show-msg.show { opacity: 1; transform: none; pointer-events: auto; animation: go 1.4s ease-in-out infinite; }
+.piece {
+  position: absolute; left: 0; top: 0; transform-origin: 0 0; cursor: grab; touch-action: none; user-select: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.35); transition: transform 0.35s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+.piece.drag { cursor: grabbing; transition: none; z-index: 2; box-shadow: 0 14px 34px rgba(0, 0, 0, 0.7), inset 0 0 0 2px var(--ink); }
+.piece.placed { cursor: default; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
+.piece.wrong { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55), inset 0 0 0 2px var(--red); }
+.piece .pn { position: absolute; top: 4px; left: 6px; font: 500 22px/1 'Caveat', cursive; color: #fff; text-shadow: 0 1px 4px #000; }
+.piece.placed .pn { display: none; }
+#letter.show { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 16px; overflow-y: auto; }
+/* centred, but scrolls from the top when it doesn't fit */
+.letter { margin-top: auto; }
+.letter-foot { margin-bottom: auto; }
+.letter {
+  width: min(560px, 100%); background: #efe9dc; color: #1d1a16; padding: 22px 22px 30px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  transform: rotate(-1deg); animation: letter 0.7s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+.letter-img { display: block; width: 100%; max-height: 34vh; object-fit: cover; margin-bottom: 18px; }
+.letter-text { font: 500 clamp(26px, 3.4vw, 34px)/1.3 'Caveat', cursive; white-space: pre-line; text-align: center; }
+@keyframes letter { from { opacity: 0; transform: translateY(30px) rotate(3deg) scale(0.95); } }
+#gift-wait { background: rgba(10, 8, 20, 0.75); }

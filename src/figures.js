@@ -318,6 +318,59 @@ export function addXray(figure) {
   return figure.userData.xray;
 }
 
+// The hunter's Classic, for the final duel: held low in his right hand, pointing ahead.
+// (Slenderman's hands hang at his sides, about 1.2 m up; it's a little bigger, for his size.)
+export function armHunter(figure) {
+  const skin = buildNocturnum(settings.skin);
+  const gun = new THREE.Group();
+  gun.add(skin.group);
+  gun.position.set(0.37, 1.17, -0.1);
+  gun.scale.setScalar(1.3);
+  gun.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  figure.add(gun);
+  figure.userData.skin = skin;
+}
+
+// The hunter's shield while he can't be stunned (the few seconds after a stun ends): a pale shell
+// around him that shimmers, brightest at its edges. Add it after addXray, so the x-ray doesn't
+// copy it. figure.userData.shield(k, time): k 0..1 is how strong it shows (0 hides it).
+export function addShield(figure, height) {
+  const mat = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 }, uK: { value: 0 } },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    vertexShader: /* glsl */`
+      varying vec3 vN, vView, vPos;
+      void main() {
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vN = normalize(normalMatrix * normal);
+        vView = normalize(-mv.xyz);
+        vPos = position;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      uniform float uTime, uK;
+      varying vec3 vN, vView, vPos;
+      void main() {
+        float rim = pow(1.0 - abs(dot(normalize(vN), normalize(vView))), 2.0);
+        // thin bands of light running up the shell
+        float bands = smoothstep(0.82, 1.0, sin(vPos.y * 14.0 - uTime * 5.0) * 0.5 + 0.5);
+        float a = (rim * 0.65 + bands * 0.18 + 0.03) * uK;
+        gl_FragColor = vec4(vec3(0.55, 0.9, 1.0), a);
+      }`,
+  });
+  const radius = height * 0.2;
+  const shell = new THREE.Mesh(new THREE.CapsuleGeometry(radius, height - radius * 1.6, 8, 24), mat);
+  shell.position.y = height / 2;
+  shell.visible = false;
+  shell.renderOrder = 997;
+  figure.add(shell);
+  figure.userData.shield = (k, time) => {
+    shell.visible = k > 0.001;
+    mat.uniforms.uK.value = k;
+    mat.uniforms.uTime.value = time;
+  };
+}
+
 // glow red while stunned (0..1)
 export function setStunGlow(figure, k) {
   if (!figure.userData.mats) {

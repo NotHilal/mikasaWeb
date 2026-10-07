@@ -6,7 +6,7 @@ export const MAP = {
   play: 74,        // players can't go further than this from the centre
 };
 
-export const PAGES = 5;
+export const PAGES = 7;
 // Where pages go, different every round (from the round's seed, so the same on both screens):
 // a few on landmarks, the rest nailed to trees anywhere in the woods, spread out, facing open
 // ground, and not right where the seeker starts.
@@ -16,14 +16,30 @@ export const PAGE_SPOTS = {
   fromSeeker: 25,    // metres from the seeker's start
   height: 1.45,      // on a tree: how high up the trunk
 };
-// Placeholder text for the 5 parts of the message (shown when a page is picked up).
-export const MESSAGE = ['Part one', 'Part two', 'Part three', 'Part four', 'Part five'];
-// The gift at the very end (Iso wins the final duel): the seeker puts the 5 pieces of `image`
-// together, then reads `message` (the 5 parts above, one per line, unless set here).
-// Without the image file, a placeholder picture says where to put it.
+// Placeholder text for the 7 parts of the message (shown when a page is picked up), one per page.
+export const MESSAGE = ['Part one', 'Part two', 'Part three', 'Part four', 'Part five', 'Part six', 'Part seven'];
+// The gift at the very end (Iso wins the final duel): the seeker puts the 7 pieces of `image`
+// together. Without the image file, a placeholder picture says where to put it.
+// Then the card opens: `image` on the front; clicked, it turns over to `back`, where a scratch-off
+// over `scratchArea` hides `prize` (its lines: the first small, the second big, the third handwritten).
 export const GIFT = {
   image: 'gift/picture.jpg',   // in public/
-  message: null,               // null: MESSAGE, one part per line
+  back: 'gift/back.jpg',       // in public/, the same size as `image`
+  scratchArea: { left: 525, top: 564, width: 615, height: 261 }, // in `back`'s pixels: inside its red frame
+  prize: ['A tiny', '200 €', 'Amazon gift card for your monitor c:'],
+  scratched: 0.5,              // how much has to be scratched off before it all comes off
+};
+
+// The jumpscare each time the seeker is grabbed (only the seeker sees it): the view rushes up to
+// his face, his head tips over to the side, and `sound` plays. Without the file, a made-up shriek
+// plays. Breaking free starts after it (the escape time in GRAB doesn't count it).
+export const SCARE = {
+  sound: 'sounds/jumpscare.mp3', // in public/
+  volume: 1,
+  ms: 1600,         // how long it lasts
+  dist: 0.75,       // how close his face comes (m)
+  rushMs: 140,      // how fast the view gets there
+  fovDrop: 10,      // degrees the view narrows (his head fills the screen)
 };
 
 export const SEEKER = {

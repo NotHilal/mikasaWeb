@@ -1,7 +1,7 @@
 # Hunted Treasure
 
 A two-player first-person hide-and-seek in a dark forest. One player, the **Seeker**, has
-a flashlight and must find 5 pages pinned to trees. The other, the **Hunter**, is tall,
+a flashlight and must find 7 pages pinned to trees. The other, the **Hunter**, is tall,
 silent and sees in the dark, and wins by catching the Seeker first: grabbing them three
 times (they can break free from the first two).
 
@@ -61,7 +61,7 @@ faster the closer he gets, and worse when they're looking right at him (`DREAD` 
 After each round a recap shows a map of both players' paths, the pages, the closest call and
 a few numbers. Going back to the lobby takes both players' votes ("Back to lobby 1/2", then 2/2).
 
-The pages are somewhere new every round (`PAGE_SPOTS` in the config): 2 on landmarks and 3
+The pages are somewhere new every round (`PAGE_SPOTS` in the config): 2 on landmarks and 5
 nailed to trees anywhere in the woods, at least 28 m apart, facing open ground, and not near
 the seeker's start. Both screens pick the same spots from the round's seed. In the dark a page is
 only a faint pale shape close by; it takes the flashlight to really see it.
@@ -96,12 +96,14 @@ moment can't give it to both. Numbers in `DUEL` (`src/config.js`), code in `src/
 
 - **Iso loses**: both players get *Try again* (both must press it: the best of 5 starts over) or *Main
   menu* (either one takes both players back to the menu).
-- **Iso wins**: both press *Continue*. The seeker gets the 5 pages as 5 pieces of a picture to drag
-  into place; once it's whole, *Show message* opens the message. The hunter sees how she's getting on.
+- **Iso wins**: both press *Continue*. The seeker gets the 7 pages as 7 pieces of a picture to drag
+  into place; once it's whole, *Open the card* shows it as a card. Clicked, it turns over to its back,
+  where she scratches off the silver to find the gift. The hunter sees how she's getting on.
 
-The picture is `public/gift/picture.jpg` and the message is the 5 parts in `MESSAGE` (one per line), or
-`GIFT.message` if set (`src/config.js`, code in `src/gift.js`). Without the picture a placeholder says
-where to put it. Any shape of picture works; the pieces are two across the top and three along the bottom.
+The front is `public/gift/picture.jpg`, the back `public/gift/back.jpg`; the scratch-off sits over
+`GIFT.scratchArea` on the back and hides `GIFT.prize` (`src/config.js`, code in `src/gift.js`). Without
+the front picture a placeholder says where to put it. Any shape of picture works; the pieces are three
+across the top and four along the bottom.
 
 ## Look
 

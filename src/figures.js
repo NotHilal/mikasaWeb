@@ -3,7 +3,8 @@
 // (or a simple stand-in if his model didn't load). Each has userData.animate(dt, speed, time, pose), a walk
 // cycle driven by how fast it's moving, called every frame by the match. pose (all 0..1):
 // grab (the hunter reaching out and holding), struggle (the seeker fighting to get free),
-// lift (the seeker held up off the ground: the last grab).
+// lift (the seeker held up off the ground: the last grab), scare (Slenderman's jumpscare: his head
+// tilted over).
 import * as THREE from 'three';
 import { isoReady, cloneIso } from './iso.js';
 import { slenderReady, makeSlender, gunArm } from './slender.js';
@@ -33,6 +34,9 @@ function slenderHunter() {
   g.userData.animate = (dt, speed, time, pose = {}) => {
     t.uTime.value = time;
     t.uGrab.value = pose.grab ?? 0;
+    // the jumpscare: his head tips over onto his shoulder, twitching
+    const scare = pose.scare ?? 0;
+    t.uTilt.value = scare * (0.62 + Math.sin(time * 37) * 0.05 + Math.sin(time * 61) * 0.03);
     // a stride of about 2.2 m, so his feet keep up with the ground; still while he grabs
     const want = THREE.MathUtils.smoothstep(speed, 0.2, 2.2) * (1 - (pose.grab ?? 0));
     stride += (want - stride) * Math.min(1, dt * 6);

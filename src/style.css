@@ -431,15 +431,35 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 .piece.wrong { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55), inset 0 0 0 2px var(--red); }
 .piece .pn { position: absolute; top: 4px; left: 6px; font: 500 22px/1 'Caveat', cursive; color: #fff; text-shadow: 0 1px 4px #000; }
 .piece.placed .pn { display: none; }
-#letter.show { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 16px; overflow-y: auto; }
+#letter.show { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 16px; overflow-y: auto; }
 /* centred, but scrolls from the top when it doesn't fit */
-.letter { margin-top: auto; }
+.card-hint { margin-top: auto; font: 600 13px var(--cond); letter-spacing: 0.2em; text-transform: uppercase; color: var(--teal); transition: opacity 0.4s; }
+.card-hint.gone { opacity: 0; }
 .letter-foot { margin-bottom: auto; }
-.letter {
-  width: min(560px, 100%); background: #efe9dc; color: #1d1a16; padding: 22px 22px 30px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-  transform: rotate(-1deg); animation: letter 0.7s cubic-bezier(0.2, 1.2, 0.4, 1);
+/* the card: as wide as fits, the picture's shape (--aspect, set from the picture) */
+.card {
+  --aspect: 1.777; flex: none; perspective: 1600px; cursor: pointer;
+  width: min(900px, 94vw, (100vh - 190px) * var(--aspect)); aspect-ratio: var(--aspect);
+  animation: letter 0.7s cubic-bezier(0.2, 1.2, 0.4, 1);
 }
-.letter-img { display: block; width: 100%; max-height: 34vh; object-fit: cover; margin-bottom: 18px; }
-.letter-text { font: 500 clamp(26px, 3.4vw, 34px)/1.3 'Caveat', cursive; white-space: pre-line; text-align: center; }
+.card-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 0.9s cubic-bezier(0.3, 1.25, 0.45, 1); }
+.card.flipped .card-inner { transform: rotateY(180deg); }
+.card:not(.flipped):hover .card-inner { transform: rotateY(-6deg) rotateX(3deg); }
+.card-face { position: absolute; inset: 0; backface-visibility: hidden; border-radius: 14px; overflow: hidden; box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65); }
+.card-face img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.card-back { transform: rotateY(180deg); cursor: default; }
+/* the scratch-off: placed over the silver in the back picture (GIFT.scratchArea, set by gift.js);
+   its coating is that same patch of the picture, so it looks painted on */
+.scratch { position: absolute; touch-action: none; container-type: size; }
+.scratch-prize {
+  position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 2cqh; padding: 4%;
+  background: radial-gradient(ellipse at 50% 45%, #3a0d17, #14080d 75%); color: #fff;
+  font: 700 9cqh/1.1 var(--cond); letter-spacing: 0.06em; text-transform: uppercase;
+}
+.scratch-prize .amt { font-size: 34cqh; line-height: 0.95; color: #ff4655; text-shadow: 0 0 24px rgba(255, 70, 85, 0.55); letter-spacing: 0.02em; }
+.scratch-prize .sub { font: 500 11cqh/1.1 'Caveat', cursive; color: #ece8e1; letter-spacing: 0; text-transform: none; }
+.scratch canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; transition: opacity 0.8s; }
+.scratch.revealed canvas { opacity: 0; pointer-events: none; }
+.scratch.revealed { box-shadow: 0 0 34px rgba(255, 70, 85, 0.7); transition: box-shadow 0.6s; }
 @keyframes letter { from { opacity: 0; transform: translateY(30px) rotate(3deg) scale(0.95); } }
 #gift-wait { background: rgba(10, 8, 20, 0.75); }

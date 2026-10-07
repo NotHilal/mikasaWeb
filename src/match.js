@@ -9,7 +9,7 @@ import { $, flash, hud, toast } from './ui.js';
 import { settings } from './settings.js';
 import { createMinimap } from './minimap.js';
 import { actionFor, key, label, mouseCode } from './keys.js';
-import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT } from './config.js';
+import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT, SCARE } from './config.js';
 
 const INTERP_MS = 110; // the other player is drawn this far in the past, to smooth over network jitter
 const v3 = (a) => new THREE.Vector3().fromArray(a);
@@ -98,7 +98,9 @@ export class Match {
     // one in progress: { n, kill, start, until, need, drain, progress } (times in ms)
     this.grabs = 0;
     this.grab = null;
-    this.pose = { grab: 0, struggle: 0, lift: 0 }; // the other player's figure, smoothed
+    this.pose = { grab: 0, struggle: 0, lift: 0, scare: 0 }; // the other player's figure, smoothed
+    this.scare = null; // the jumpscare, each time the seeker is grabbed: { start, until, light }
+    if (role === 'seeker') audio.preload(SCARE.sound);
     this.aiming = false;
     this.tpCount = 0;
     this.remoteTp = 0;
@@ -231,6 +233,7 @@ export class Match {
     $('#escape').classList.remove('show');
     $('#escape-key').textContent = label('escape');
     $('#ammo').style.display = role === 'seeker' ? '' : 'none';
+    $('#tb-total').textContent = PAGES;
     this.minimap = createMinimap($('#minimap'), world);
     this.mapT = 0;
     this.renderHud();
@@ -666,7 +669,7 @@ export class Match {
     const n = ++this.grabs, kill = n >= GRAB.kill, t = now();
     const e = GRAB.escape[Math.min(n, GRAB.escape.length) - 1];
     // if the seeker never answers (they'd have broken free or been caught by then), let go
-    this.grab = { n, kill, start: t, until: t + (kill ? GRAB.killMs : e.time * 1000 + 2500) };
+    this.grab = { n, kill, start: t, until: t + (kill ? GRAB.killMs : e.time * 1000 + SCARE.ms + 2500) };
     this.send('grab', { n });
     audio.play('grab');
     this.status(kill ? 'Got them' : `Grab ${n} of ${GRAB.kill}`, 1600);
@@ -679,19 +682,76 @@ export class Match {
     this.grabs = n;
     const kill = n >= GRAB.kill, t = now();
     const e = GRAB.escape[Math.min(n, GRAB.escape.length) - 1];
-    this.grab = { n, kill, start: t, until: t + (kill ? GRAB.killMs : e.time * 1000), need: e.presses, drain: e.drain, progress: 0 };
+    // (an escapable grab's clock starts once the jumpscare is over; the hunter allows for that)
+    this.grab = { n, kill, start: t, until: t + (kill ? GRAB.killMs : e.time * 1000 + SCARE.ms), need: e.presses, drain: e.drain, progress: 0 };
     this.player.dashT = 0;
     this.jolt = 1;
-    this.engine.film.uniforms.uStatic.value = 0.7;
     audio.play('grab');
     if (kill) this.status('Caught', GRAB.killMs);
-    else $('#escape').classList.add('show');
+    this.startScare(kill);
+  }
+
+  // seeker: grabbed: his face, right up close, for SCARE.ms; then (unless it's the last grab)
+  // the fight to break free
+  startScare(last = false) {
+    if (this.role !== 'seeker') return;
+    // (the last grab: it lasts until the round ends)
+    this.scare = { start: now(), until: last ? Infinity : now() + SCARE.ms, light: this.flashlight.on };
+    this.viewmodel.visible = false;
+    hud(false); // nothing in front of his face
+    this.setPrompt(null);
+    this.flashlight.on = true; // (so his face is lit)
+    $('#escape').classList.remove('show');
+    this.engine.film.uniforms.uStatic.value = 1;
+    audio.file(SCARE.sound, SCARE.volume, 'scare');
+  }
+
+  endScare() {
+    const s = this.scare;
+    this.scare = null;
+    this.scareFace = null;
+    if (this.over) return; // (the last grab: the round's end screen takes over)
+    this.viewmodel.visible = true;
+    this.flashlight.on = s.light;
+    hud(true);
+    // now the fight: its time bar starts full
+    if (this.grab && !this.grab.kill) { this.grab.start = now(); $('#escape').classList.add('show'); }
+  }
+
+  // every frame of the jumpscare, after the player has placed the camera: pull it up to his
+  // face, shaking, and look him in the eye
+  updateScare(t) {
+    const s = this.scare, r = this.remote, cam = this.engine.camera;
+    if (!s) return;
+    if (t >= s.until && !this.over) return this.endScare();
+    if (!r.visible) return;
+    const k = THREE.MathUtils.clamp((t - s.start) / SCARE.rushMs, 0, 1), ease = 1 - (1 - k) ** 3;
+    // his face, in his own space (he faces -z), where the tilted head puts it
+    r.updateMatrixWorld();
+    const u = r.userData.tentacles, tilt = u?.uTilt.value ?? 0;
+    const neck = u ? u.uNeck.value.clone() : new THREE.Vector3(0, 2.2, 0);
+    const face = r.localToWorld(neck.add(new THREE.Vector3(-Math.sin(tilt) * 0.28,Math.cos(tilt) * 0.28, -0.1)));
+    const front = r.localToWorld(new THREE.Vector3(0, 0, -1)).sub(r.getWorldPosition(new THREE.Vector3())).setY(0).normalize();
+    const to = face.clone().addScaledVector(front, SCARE.dist);
+    const shake = 0.012 + 0.04 * (1 - THREE.MathUtils.smoothstep(t - s.start, 0, 600));
+    cam.position.lerp(to, ease).add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(shake));
+    cam.lookAt(face);
+    cam.fov = settings.fov - SCARE.fovDrop * ease;
+    cam.updateProjectionMatrix();
+    this.scareFace = face; // (the flashlight lights it)
+    // and keep the player looking the same way, so nothing pulls the view back
+    const d = face.clone().sub(cam.position);
+    this.player.yaw = Math.atan2(-d.x, -d.z);
+    this.player.pitch = Math.atan2(d.y, Math.hypot(d.x, d.z));
+    // static: a burst as he lunges, then a light flicker with the odd spike
+    const film = this.engine.film.uniforms, since = t - s.start;
+    film.uStatic.value = since < SCARE.rushMs + 80 ? 0.9 : Math.random() < 0.06 ? 0.6 : 0.12 + 0.1 * Math.random();
   }
 
   // seeker: one press of Break free
   struggle() {
     const g = this.grab;
-    if (this.role !== 'seeker' || !g || g.kill) return;
+    if (this.role !== 'seeker' || !g || g.kill || this.scare) return; // (not while he's in my face)
     g.progress++;
     this.jolt = 1;
     audio.play('struggle');
@@ -959,9 +1019,11 @@ export class Match {
       this.remoteSpeed = (this.remoteSpeed ?? 0) + ((moved > 15 ? 0 : moved) - (this.remoteSpeed ?? 0)) * Math.min(1, dt * 8);
       // grab poses: on my screen he reaches for me, or (hunter) they struggle / are lifted
       const g = this.grab;
-      const want = this.role === 'seeker' ? { grab: g ? 1 : 0, struggle: 0, lift: 0 }
-        : { grab: 0, struggle: g && !g.kill ? 1 : 0, lift: g?.kill ? THREE.MathUtils.smoothstep(t - g.start, 0, GRAB.killMs * 0.6) : 0 };
-      for (const k in this.pose) this.pose[k] += (want[k] - this.pose[k]) * Math.min(1, dt * 10);
+      const want = this.role === 'seeker' ? { grab: g ? 1 : 0, struggle: 0, lift: 0, scare: this.scare ? 1 : 0 }
+        : { grab: 0, struggle: g && !g.kill ? 1 : 0, lift: g?.kill ? THREE.MathUtils.smoothstep(t - g.start, 0, GRAB.killMs * 0.6) : 0, scare: 0 };
+      for (const k in this.pose) this.pose[k] += (want[k] - this.pose[k]) * Math.min(1, dt * (k === 'scare' ? 14 : 10));
+      // the jumpscare: he turns to face me
+      if (this.scare) r.rotation.y = Math.atan2(-(this.player.pos.x - rs.x), -(this.player.pos.z - rs.z));
       r.userData.animate?.(dt, this.remoteSpeed, time, this.pose);
       r.userData.xray.visible = t < this.revealUntil;
       r.userData.skin?.update(time); // the glow in the Classic's mouth
@@ -985,6 +1047,8 @@ export class Match {
         r.userData.glare.material.opacity = rs.fl ? Math.pow(Math.max(0, dir.dot(toMe)), 6) : 0;
       }
     }
+
+    this.updateScare(t);
 
     if (this.role === 'hunter') {
       // my own arms reach out while I hold them
@@ -1017,8 +1081,13 @@ export class Match {
     if (this.role === 'seeker') {
       this.viewmodel.lightOn = flashlight.on;
       this.viewmodel.update(dt, engine.camera, player);
-      // the light is mounted under the pistol's barrel
-      flashlight.update(dt, this.viewmodel.lensWorld(), player.forward, time);
+      // the light is mounted under the pistol's barrel; in the jumpscare it lights his face from below
+      if (this.scare && this.scareFace) {
+        const from = engine.camera.position.clone().add(new THREE.Vector3(0, -0.4, 0));
+        flashlight.update(dt, from, this.scareFace.clone().sub(from).normalize(), time, false);
+        // (dimmer: at this distance the full beam just turns him white) and stuttering
+        flashlight.light.intensity *= Math.random() < 0.08 ? 0.05 : 0.18;
+      } else flashlight.update(dt, this.viewmodel.lensWorld(), player.forward, time);
       this.setPrompt(this.lookedAtPage() && !this.over && !this.grab ? `<b>${label('take')}</b> Take page` : null);
       // held: the view shakes, harder each time they struggle; the bars show how it's going
       const g = this.grab;
@@ -1085,6 +1154,7 @@ export class Match {
       }
     }
     if (this.grab) { close = 1; target = Math.max(target, this.grab.kill ? 0.6 : 0.35); } // in his hands
+    if (this.scare) { close = 1; target = 0.1; this.dread = Math.min(this.dread, 0.1); } // (his face has to show through: updateScare flickers its own)
     this.dread += (target - this.dread) * Math.min(1, dt * 4);
     audio.setDanger(Math.min(1, close * 1.1));
     // (the teleport's own burst of static fades out on top of this)

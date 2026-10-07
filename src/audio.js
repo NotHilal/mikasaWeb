@@ -1,5 +1,5 @@
-// Synthesized sound (no audio files): the night-forest ambience, footsteps on leaves, the page
-// pickup, and the gun and ability sounds.
+// Synthesized sound: the night-forest ambience, footsteps on leaves, the page pickup, and the gun
+// and ability sounds. The one file is the jumpscare (audio.file, SCARE in config.js).
 import { settings } from './settings.js';
 
 let ctx = null, master = null, noiseBuf = null;
@@ -94,6 +94,12 @@ const SOUNDS = {
   grab(d, t) {
     noiseHit(d, t, { freq: 320, q: 1, attack: 0.01, decay: 0.28, vol: 1.1, sweepTo: 80 });
     tone(d, t, { type: 'sawtooth', from: 95, to: 42, attack: 0.02, decay: 0.7, vol: 0.2 });
+  },
+  // the jumpscare, when sounds/jumpscare.mp3 isn't there: a burst of shrieking noise over a low hit
+  scare(d, t) {
+    noiseHit(d, t, { type: 'highpass', freq: 1200, attack: 0.005, decay: 1.1, vol: 1.6, sweepTo: 4000 });
+    noiseHit(d, t, { freq: 180, q: 0.8, attack: 0.005, decay: 0.9, vol: 1.8, sweepTo: 50 });
+    for (const f of [740, 1010, 1390]) tone(d, t, { type: 'sawtooth', from: f, to: f * 1.4, attack: 0.01, decay: 1, vol: 0.12 });
   },
   struggle(d, t) { noiseHit(d, t, { freq: 700 + Math.random() * 600, q: 1.5, attack: 0.005, decay: 0.07, vol: 0.3 }); },
   breakFree(d, t) { noiseHit(d, t, { freq: 500, q: 1.2, attack: 0.02, decay: 0.3, vol: 0.8, sweepTo: 2500 }); },
@@ -249,6 +255,15 @@ function startAmbience() {
   }, 200);
 }
 
+const files = new Map(); // url -> promise of a decoded buffer (null if it couldn't be loaded)
+function loadFile(url) {
+  if (!files.has(url)) {
+    files.set(url, fetch(url).then((r) => (r.ok ? r.arrayBuffer() : Promise.reject()))
+      .then((b) => ctx.decodeAudioData(b)).catch(() => null));
+  }
+  return files.get(url);
+}
+
 export const audio = {
   // must be called from a click/keypress (browsers block audio until then)
   start() {
@@ -315,6 +330,21 @@ export const audio = {
     o.connect(lp).connect(og).connect(master);
     o.start(t); o.stop(t + 3.1);
   },
+
+  // a sound file in public/ (loaded once, then kept); played through the master volume. If the
+  // file can't be loaded, `fallback` (a named sound) plays instead.
+  async file(url, vol = 1, fallback = null) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    const buf = await loadFile(url);
+    if (!buf) { if (fallback) this.play(fallback, null, vol); return; }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(out(null, vol));
+    // (if it took a moment to load the first time, it still starts right away)
+    src.start(Math.max(t, ctx.currentTime));
+  },
+  preload(url) { if (ctx) loadFile(url); },
 
   // play a named sound, optionally placed in the world ({ dist, pan })
   play(name, at, vol = 1) {

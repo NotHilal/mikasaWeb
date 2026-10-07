@@ -1,14 +1,14 @@
-// The gift, once Iso has won the final duel: the 5 pages turn out to be 5 pieces of a picture.
-// The seeker drags them into place (a small puzzle); once it's whole, "Show message" opens the
-// message (GIFT in config.js). The picture is GIFT.image; without it, a placeholder says where
-// to put it.
-import { GIFT, MESSAGE, PAGES } from './config.js';
+// The gift, once Iso has won the final duel: the pages turn out to be pieces of a picture.
+// The seeker drags them into place (a small puzzle); once it's whole, "Open the card" shows it as
+// a card that turns over to its back and a scratch-off (GIFT in config.js). The picture is
+// GIFT.image; without it, a placeholder says where to put it.
+import { GIFT, PAGES } from './config.js';
 import { $ } from './ui.js';
 
-// where each piece sits in the picture, as fractions: two across the top, three along the bottom
-const REGIONS = [[0, 0, 0.5, 0.5], [0.5, 0, 0.5, 0.5], [0, 0.5, 1 / 3, 0.5], [1 / 3, 0.5, 1 / 3, 0.5], [2 / 3, 0.5, 1 / 3, 0.5]].slice(0, PAGES);
-
-export const giftMessage = () => GIFT.message ?? MESSAGE.join('\n');
+// where each piece sits in the picture, as fractions [x, y, w, h]: two rows, the smaller half of
+// the pages across the top and the rest along the bottom (7 pages: three on top, four below)
+const row = (n, y) => Array.from({ length: n }, (_, i) => [i / n, y, 1 / n, 0.5]);
+const REGIONS = [...row(Math.floor(PAGES / 2), 0), ...row(Math.ceil(PAGES / 2), 0.5)];
 
 function placeholder() {
   const cv = document.createElement('canvas');
@@ -43,8 +43,91 @@ function loadPicture() {
   });
 }
 
+// The card (its screen must already be showing): the picture on the front; a click turns it over
+// to the back picture (and back again, unless the click was on the scratch-off). On the back, the
+// scratch-off sits over GIFT.scratchArea, and its coating is that same patch of the picture.
+// onFlip() the first time it's turned over, onScratched() once the prize shows.
+export function openCard({ onFlip, onScratched }) {
+  const card = $('#card'), box = $('#scratch'), cv = $('#scratch-cover'), hint = $('#card-hint'), back = $('#card-back-img');
+  card.classList.remove('flipped');
+  box.classList.remove('revealed');
+  hint.classList.remove('gone');
+  hint.textContent = 'Click the card to turn it over';
+  const [small, big, sub] = GIFT.prize;
+  $('#scratch-prize').innerHTML = `<div>${small ?? ''}</div><div class="amt">${big ?? ''}</div><div class="sub">${sub ?? ''}</div>`;
+
+  let flippedOnce = false, done = false;
+  card.onclick = (e) => {
+    if (box.contains(e.target)) return;
+    card.classList.toggle('flipped');
+    if (!done) hint.textContent = card.classList.contains('flipped') ? 'Scratch the silver' : 'Click the card to turn it over';
+    if (!flippedOnce) { flippedOnce = true; onFlip?.(); }
+  };
+
+  // the scratch-off goes where the back picture has its silver patch (in fractions of the picture,
+  // so it stays on it at any size); without the picture, a plain silver patch in the middle
+  let pic = null;
+  const place = () => {
+    const a = GIFT.scratchArea, w = pic?.naturalWidth || 1, h = pic?.naturalHeight || 1;
+    const [l, t, bw, bh] = pic ? [a.left / w, a.top / h, a.width / w, a.height / h] : [0.3, 0.55, 0.4, 0.3];
+    Object.assign(box.style, { left: `${l * 100}%`, top: `${t * 100}%`, width: `${bw * 100}%`, height: `${bh * 100}%` });
+  };
+  // the coating, drawn once the card's laid out (the canvas matches the box's real size)
+  let g = null, moves = 0;
+  const paint = () => {
+    const r = box.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+    if (!r.width) return;
+    cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+    g = cv.getContext('2d', { willReadFrequently: true });
+    if (pic) {
+      const a = GIFT.scratchArea;
+      g.drawImage(pic, a.left, a.top, a.width, a.height, 0, 0, cv.width, cv.height);
+    } else {
+      const grad = g.createLinearGradient(0, 0, cv.width, cv.height);
+      grad.addColorStop(0, '#b9bcc2'); grad.addColorStop(0.5, '#eef0f3'); grad.addColorStop(1, '#9fa3aa');
+      g.fillStyle = grad;
+      g.fillRect(0, 0, cv.width, cv.height);
+    }
+    g.globalCompositeOperation = 'destination-out';
+    g.lineCap = g.lineJoin = 'round';
+    g.lineWidth = cv.height * 0.16;
+  };
+  const ready = () => { place(); requestAnimationFrame(() => requestAnimationFrame(paint)); };
+  back.onload = () => { pic = back; ready(); };
+  back.onerror = () => { pic = null; ready(); };
+  back.src = GIFT.back;
+  if (back.complete && back.naturalWidth) back.onload();
+
+  // how much of the coating is gone (every 4th pixel's alpha is plenty)
+  const cleared = () => {
+    const d = g.getImageData(0, 0, cv.width, cv.height).data;
+    let clear = 0, n = 0;
+    for (let i = 3; i < d.length; i += 16) { n++; if (d[i] < 40) clear++; }
+    return clear / n;
+  };
+  let last = null;
+  const at = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * (cv.width / r.width), (e.clientY - r.top) * (cv.height / r.height)]; };
+  const scratch = (e) => {
+    if (!g || done) return;
+    const [x, y] = at(e);
+    g.beginPath();
+    g.moveTo(...(last ?? [x - 0.1, y]));
+    g.lineTo(x, y);
+    g.stroke();
+    last = [x, y];
+    if (++moves % 8 === 0 && cleared() >= GIFT.scratched) {
+      done = true;
+      box.classList.add('revealed');
+      hint.textContent = 'For you ♥';
+      onScratched?.();
+    }
+  };
+  cv.onpointerdown = (e) => { e.preventDefault(); cv.setPointerCapture(e.pointerId); last = null; scratch(e); cv.onpointermove = scratch; };
+  cv.onpointerup = cv.onpointercancel = () => { cv.onpointermove = null; last = null; };
+}
+
 // Opens the puzzle screen (it must already be showing). onDone() when it's whole, onRead() when
-// the message is opened.
+// the card is opened.
 export async function openPuzzle({ onDone, onRead }) {
   const root = $('#puzzle'), board = $('#puzzle-board'), tray = $('#puzzle-tray');
   root.querySelectorAll('.piece').forEach((p) => p.remove());
@@ -150,10 +233,8 @@ export async function openPuzzle({ onDone, onRead }) {
     onDone?.();
   }
 
-  $('#show-msg').onclick = () => {
-    $('#letter-text').textContent = giftMessage();
-    onRead?.();
-  };
+  $('#show-msg').onclick = () => onRead?.();
+  $('#card').style.setProperty('--aspect', pic.aspect);
 
   layout();
   // (the first layout can run before the screen has its size)

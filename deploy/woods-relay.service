@@ -1,0 +1,18 @@
+# systemd unit for the 2-player relay (installed by deploy/setup-relay.sh)
+[Unit]
+Description=Hunted Treasure relay
+After=network.target
+
+[Service]
+User=woods
+WorkingDirectory=/srv/woods/server
+Environment=PORT=8788
+ExecStart=/usr/bin/node relay.mjs
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

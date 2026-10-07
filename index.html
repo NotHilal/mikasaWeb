@@ -77,7 +77,7 @@
             <span class="role-art seeker-art"></span>
             <span class="role-tag-line">Role · Initiator</span>
             <span class="role-name">Seeker</span>
-            <span class="role-desc">Find all 5 pages. Classic: 3 stun rounds, reloads itself, headshots stun longer. Recon, Flash and Dash on cooldowns.</span>
+            <span class="role-desc">Find all 7 pages. Classic: 3 stun rounds, reloads itself, headshots stun longer. Recon, Flash and Dash on cooldowns.</span>
             <span class="role-kit" data-kit="dart flash dash"></span>
             <span class="role-who"></span>
           </button>
@@ -200,7 +200,7 @@
         <div class="topbar hs-only">
           <div class="tb-side seeker"><span id="tb-pages">0</span><small>pages</small></div>
           <div class="tb-time" id="tb-time">0:00</div>
-          <div class="tb-side hunter"><small>of</small><span>5</span></div>
+          <div class="tb-side hunter"><small>of</small><span id="tb-total">7</span></div>
         </div>
         <div id="prompt" class="prompt"></div>
         <div id="escape" class="escape">
@@ -306,22 +306,32 @@
         </div>
       </section>
 
-      <!-- the gift: the 5 pages are 5 pieces of a picture (src/gift.js) -->
+      <!-- the gift: the 7 pages are 7 pieces of a picture (src/gift.js) -->
       <section id="puzzle" class="screen">
         <div class="puzzle-head">
-          <div class="eyebrow">Your 5 pages</div>
+          <div class="eyebrow">Your 7 pages</div>
           <h2 id="puzzle-title" class="heading">Put the pieces together</h2>
           <p id="puzzle-note" class="note"></p>
         </div>
         <div id="puzzle-board" class="puzzle-board"></div>
         <div id="puzzle-tray" class="puzzle-tray"></div>
-        <div class="puzzle-foot"><button id="show-msg" class="btn lockin">Show message</button></div>
+        <div class="puzzle-foot"><button id="show-msg" class="btn lockin">Open the card</button></div>
       </section>
 
+      <!-- the card: the picture on the front; click to turn it over: the back picture, with a scratch-off on it -->
       <section id="letter" class="screen">
-        <div class="letter">
-          <img id="letter-img" class="letter-img" alt="" />
-          <div id="letter-text" class="letter-text"></div>
+        <div id="card-hint" class="card-hint">Click the card to turn it over</div>
+        <div id="card" class="card">
+          <div class="card-inner">
+            <div class="card-face card-front"><img id="letter-img" alt="" /></div>
+            <div class="card-face card-back">
+              <img id="card-back-img" alt="" />
+              <div id="scratch" class="scratch">
+                <div id="scratch-prize" class="scratch-prize"></div>
+                <canvas id="scratch-cover"></canvas>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="btn-row center letter-foot"><button id="letter-menu" class="btn">Main menu</button></div>
       </section>

@@ -1,0 +1,9 @@
+shots
+tools
+server
+deploy
+dist
+node_modules
+*.md
+frontcard.png
+bgcard.png

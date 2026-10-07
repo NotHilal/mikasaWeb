@@ -35,6 +35,8 @@ const JOINT = {
   knee: (s) => new THREE.Vector3(s * 0.085, -0.45, Z + 0.025),
   shoulder: (s) => new THREE.Vector3(s * 0.21, 0.56, Z),
 };
+// the base of his neck: the head tips over sideways about this for the jumpscare (uTilt)
+const NECK = new THREE.Vector3(0, 0.62, Z + 0.02);
 // In the duel he holds the Classic out in front, his right arm (side -1 in the file) raised forward
 // from the shoulder by this much (radians; straight down is 0). The sculpt's arms are fused to his
 // jacket all the way down, so the real arm can't be lifted (it would drag the jacket up with it):
@@ -94,8 +96,13 @@ function bendShader(uniforms, withNormals) {
       uniform float uPhase, uStride, uHold; // the walk: where in the stride, how big (0..1); uHold: the gun arm (side -1) is raised to aim
       uniform vec3 uHipL, uHipR, uKneeL, uKneeR, uShoulderL, uShoulderR;
       uniform vec3 uTuck; // where the gun arm goes while he holds the Classic: inside his right side (x, lowest y, z)
+      uniform vec3 uNeck; uniform float uTilt; // the jumpscare: his head tipped over sideways about the neck (radians)
       // a turn about the x axis (his left-right): + swings a limb forward (he faces -z)
       mat3 rotX(float a) { float c = cos(a), s = sin(a); return mat3(1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c); }
+      // and about the z axis (the way he faces): tips the head over onto a shoulder
+      mat3 rotZ(float a) { float c = cos(a), s = sin(a); return mat3(c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0); }
+      // how much a point is part of the head (body only: not a limb or a tentacle), fading in up the neck
+      float headK(vec3 p) { return aAlong > 0.0 || aLeg.x != 0.0 || aArm.x != 0.0 ? 0.0 : smoothstep(uNeck.y - 0.04, uNeck.y + 0.12, p.y); }
       // each leg swings from the hip, half a stride apart; the knee bends as the leg comes through
       float legPhase() { return uPhase + (aLeg.x < 0.0 ? 0.0 : 3.14159); }
       float legSwing() { return sin(legPhase()) * 0.42 * uStride * aLeg.y; }
@@ -112,9 +119,14 @@ function bendShader(uniforms, withNormals) {
         }
         if (tucked()) p = mix(p, vec3(uTuck.x, max(p.y, uTuck.y), uTuck.z), uHold * aArm.y);
         else if (aArm.x != 0.0) { vec3 sh = aArm.x < 0.0 ? uShoulderL : uShoulderR; p = sh + rotX(armSwing()) * (p - sh); }
+        if (uTilt != 0.0) p = uNeck + rotZ(uTilt * headK(p)) * (p - uNeck);
         return p;
       }
-      mat3 walkTurn() { return aLeg.x != 0.0 ? rotX(legSwing()) * rotX(kneeBend()) : aArm.x != 0.0 && !tucked() ? rotX(armSwing()) : mat3(1.0); }
+      mat3 walkTurn() {
+        if (aLeg.x != 0.0) return rotX(legSwing()) * rotX(kneeBend());
+        if (aArm.x != 0.0) return tucked() ? mat3(1.0) : rotX(armSwing());
+        return rotZ(uTilt * headK(position));
+      }
       // rotation by an angle (the length of v) about the axis v
       mat3 turn(vec3 v) {
         float a = length(v);
@@ -229,7 +241,7 @@ export async function loadSlender(manager) {
   const at = (v) => ({ value: v.applyMatrix4(fit) });
   const joints = {
     uHipL: at(JOINT.hip(-1)), uHipR: at(JOINT.hip(1)), uKneeL: at(JOINT.knee(-1)), uKneeR: at(JOINT.knee(1)),
-    uShoulderL: at(JOINT.shoulder(-1)), uShoulderR: at(JOINT.shoulder(1)),
+    uShoulderL: at(JOINT.shoulder(-1)), uShoulderR: at(JOINT.shoulder(1)), uNeck: at(NECK.clone()),
   };
   // the tucked gun arm: a little inside the side of his jacket, no lower than his hips (where the
   // jacket ends)
@@ -341,11 +353,11 @@ export function gunArm() {
   return { shoulder: sh, hand, length: hand.distanceTo(sh) };
 }
 
-// a new Slenderman: a group with userData.tentacles = { uTime, uGrab, uPhase, uStride, uHold }
-// uniforms to drive (the tentacles, and the walk)
+// a new Slenderman: a group with userData.tentacles = { uTime, uGrab, uPhase, uStride, uHold, uTilt }
+// uniforms to drive (the tentacles, the walk, and the jumpscare's head tilt)
 export function makeSlender() {
   const g = new THREE.Group();
-  const uniforms = { uTime: { value: 0 }, uGrab: { value: 0 }, uPhase: { value: 0 }, uStride: { value: 0 }, uHold: { value: 0 }, ...template.joints };
+  const uniforms = { uTime: { value: 0 }, uGrab: { value: 0 }, uPhase: { value: 0 }, uStride: { value: 0 }, uHold: { value: 0 }, uTilt: { value: 0 }, ...template.joints };
   const material = template.material.clone();
   material.onBeforeCompile = bendShader(uniforms, true);
   // his shadow bends the same way

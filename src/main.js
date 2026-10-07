@@ -15,7 +15,8 @@ import { drawRecap, recapStats } from './recap.js';
 import { Match } from './match.js';
 import { Duel, NAME } from './duel.js';
 import { openHowto, stepHowto, gotoHowto } from './howto.js';
-import { openPuzzle } from './gift.js';
+import { openPuzzle, openCard } from './gift.js';
+import { PAGES } from './config.js';
 import { net } from './net.js';
 import { audio } from './audio.js';
 import { settings, saveSettings } from './settings.js';
@@ -243,7 +244,7 @@ if (import.meta.env.DEV) {
   net.on('devduel', () => startDuel());
 }
 
-// the gift: the seeker puts the 5 pieces together and reads the message; the hunter waits
+// the gift: the seeker puts the pieces together and reads the message; the hunter waits
 let closePuzzle = null;
 function openGift() {
   endMatch();
@@ -251,16 +252,22 @@ function openGift() {
     show('puzzle');
     openPuzzle({
       onDone: () => net.send('gift', { stage: 'done' }),
-      onRead: () => { show('letter'); net.send('gift', { stage: 'read' }); },
+      onRead: () => {
+        show('letter');
+        openCard({
+          onFlip: () => net.send('gift', { stage: 'read' }),
+          onScratched: () => { audio.play('roundWin'); net.send('gift', { stage: 'scratched' }); },
+        });
+      },
     }).then((close) => { closePuzzle = close; });
   } else {
-    $('#gw-note').textContent = 'She is putting the 5 pieces together…';
+    $('#gw-note').textContent = `She is putting the ${PAGES} pieces together…`;
     show('gift-wait');
   }
 }
 net.on('gift', ({ stage }) => {
   if (screen() !== 'gift-wait') return;
-  $('#gw-note').textContent = stage === 'read' ? 'She is reading the message.' : 'The picture is whole. Now the message…';
+  $('#gw-note').textContent = stage === 'scratched' ? 'She scratched it off: she knows!' : stage === 'read' ? 'She is reading the message.' : 'The picture is whole. Now the card…';
 });
 
 // --- dropped connections: the round pauses for both players until everyone's back ------
@@ -378,7 +385,7 @@ function startMatch(seed) {
     vote.duel = result === 'pages'; // every page found: the final duel comes next
     const won = (result === 'pages') === (myRole() === 'seeker');
     $('#end-title').textContent = won ? 'Victory' : 'Defeat';
-    $('#end-sub').textContent = result === 'pages' ? 'All 5 pages found' : 'The seeker was caught';
+    $('#end-sub').textContent = result === 'pages' ? `All ${PAGES} pages found` : 'The seeker was caught';
     $('#end').classList.toggle('win', won);
     $('#end').classList.toggle('lose', !won);
     renderVote();
@@ -748,4 +755,4 @@ else show('menu');
 setTimeout(renderRolePortraits, 300);
 
 // for headless tests
-window.__game = { THREE, engine, world, player, net, lobby, flashlight, viewmodel, effects, get match() { return match; }, startMatch, startDuel };
+window.__game = { THREE, engine, world, player, net, lobby, flashlight, viewmodel, effects, get match() { return match; }, startMatch, startDuel, openGift };

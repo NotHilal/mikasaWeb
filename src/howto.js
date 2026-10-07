@@ -98,7 +98,7 @@ function slides() {
     },
     {
       role: 'Both', name: 'Moving', keys: [k('forward'), k('left'), k('back'), k('right'), k('sprint'), k('walk'), k('crouch'), k('jump')],
-      text: `<b>${k('forward')} ${k('left')} ${k('back')} ${k('right')}</b> to move, the mouse to look, <b>${k('jump')}</b> to jump over rocks and logs. <b>${k('sprint')}</b> sprints (the seeker only, until the stamina bar runs out). Hold <b>${k('walk')}</b> to walk quietly: ${Math.round(QUIET.speed * 100)}% speed and no footsteps to hear (the seeker; both in the duel). Hold <b>${k('crouch')}</b> to crouch: lower and slower, no sprinting or jumping, and a smaller target. <b>Esc</b> pauses.`,
+      text: `<b>${k('forward')} ${k('left')} ${k('back')} ${k('right')}</b> to move, the mouse to look, <b>${k('jump')}</b> to jump over rocks and logs. <b>${k('sprint')}</b> sprints (Iso only). Hold <b>${k('walk')}</b> to walk quietly: ${Math.round(QUIET.speed * 100)}% speed and no footsteps to hear. Hold <b>${k('crouch')}</b> to crouch: lower and slower, no sprinting or jumping, and a smaller target. <b>Esc</b> pauses.`,
       art: (() => {
         const d = 4, red = (a, b) => A('fill', a === 0 ? `${RED};${KEY}` : `${KEY};${RED};${KEY}`, a === 0 ? `0;${b}` : `0;${a};${b}`, d, 'discrete');
         const label = (x, y, s) => text(x, y, s, { size: 9, fill: 'rgba(236,232,225,.55)' });
@@ -117,7 +117,7 @@ function slides() {
     },
     {
       role: 'Seeker', name: 'Classic', keys: [k('shoot'), k('reload'), k('inspect')],
-      text: `<b>${k('shoot')}</b> fires. ${GUN.ammo} rounds, then it reloads by itself in ${GUN.reloadMs / 1000} s; <b>${k('reload')}</b> reloads before that (same time, no shooting meanwhile). A body hit stuns the hunter for ${GUN.bodyStunMs / 1000} s, a headshot for ${GUN.headStunMs / 1000} s: he can't move or use anything while he glows red. <b>${k('inspect')}</b> shows off the gun.`,
+      text: `<b>${k('shoot')}</b> fires. ${GUN.ammo} bullets, then it reloads by itself in ${GUN.reloadMs / 1000} s; <b>${k('reload')}</b> reloads before that. A body hit stuns the hunter for ${GUN.bodyStunMs / 1000} s, a headshot for ${GUN.headStunMs / 1000} s: he can't move or use anything while he glows red. <b>${k('inspect')}</b> shows off the gun.`,
       art: (() => {
         const d = 4.5;
         return wrap(`
@@ -133,7 +133,7 @@ function slides() {
     },
     {
       role: 'Seeker', name: 'Recon dart', keys: [k('dart')],
-      text: `<b>${k('dart')}</b> fires a dart that sends out ${DART.pulses} scans, ${DART.radius} m round. If the hunter is inside, you see him through the trees for a moment (he is told). The zone shows on both minimaps, yours and his: he sees where you're searching. ${DART.cooldown} s cooldown.`,
+      text: `<b>${k('dart')}</b> fires a dart that scans ${DART.pulses} times, ${DART.radius} m round. If the hunter is inside, you see him through the trees for a moment. The zone shows on both minimaps, yours and his: he sees where you're searching. ${DART.cooldown} s cooldown.`,
       art: (() => {
         const d = 5, pulse = (s) => `<circle cx="170" cy="100" fill="none" stroke="${TEAL}" stroke-width="2">${A('r', '0;0;75;75', `0;${s};${s + 0.14};1`, d)}${A('opacity', '0;0;0.9;0;0', `0;${s - 0.001};${s};${s + 0.14};1`, d)}</circle>`;
         return wrap(`${trees([2])}
@@ -146,7 +146,7 @@ function slides() {
     },
     {
       role: 'Seeker', name: 'Recon finds pages', keys: [k('dart')],
-      text: `Stuck? After ${mins} minutes without taking a page, <b>Recon can now find pages</b> shows. From then on, a dart scan that reaches a page makes the closest one glow through the trees for ${PAGE_HINT.revealMs / 1000} s. Only you see where; the hunter is told a page was revealed. Taking a page starts the ${mins} minutes again.`,
+      text: `Stuck? After ${mins} minutes without taking a page, <b>Recon can now find pages</b> shows. Taking a page resets the ${mins}-minute timer.`,
       art: (() => {
         const d = 6;
         return wrap(`${trees([3, 4])}
@@ -164,7 +164,7 @@ function slides() {
     },
     {
       role: 'Seeker', name: 'Flash', keys: [k('flash')],
-      text: `<b>${k('flash')}</b> throws a flash that curves and pops. It blinds the hunter if he's facing it, or whichever way he looks if it pops within ${FLASH.closeRange} m of him. It goes off early right by his head. ${FLASH.cooldown} s cooldown.`,
+      text: `<b>${k('flash')}</b> throws a flash in front of you. It blinds the hunter if he's facing it. ${FLASH.cooldown} s cooldown.`,
       art: (() => {
         const d = 4;
         return wrap(`${trees([4, 6])}
@@ -190,7 +190,7 @@ function slides() {
     },
     {
       role: 'Seeker', name: 'Pages and flashlight', keys: [k('take'), k('light')],
-      text: `Find the ${PAGES} pages pinned around the forest. In the dark they're only a faint pale shape: the flashlight shows them. Look at one up close and press <b>${k('take')}</b> to take it. <b>${k('light')}</b> turns the flashlight on and off, but it also shows where you are.`,
+      text: `Find the ${PAGES} pages pinned around the forest. The flashlight shows them. Look at one up close and press <b>${k('take')}</b> to take it. <b>${k('light')}</b> turns the flashlight on and off, but it also shows where you are.`,
       art: (() => {
         const d = 5;
         return wrap(`${trees([3])}
@@ -240,7 +240,7 @@ function slides() {
     },
     {
       role: 'Hunter', name: 'Teleport', keys: [k('teleport'), k('cancelTp')],
-      text: `Hold <b>${k('teleport')}</b> to aim, release to go there (up to ${TELEPORT.range} m), after a short wind-up the seeker can see. Not where the seeker is looking: the marker turns red there. <b>${k('cancelTp')}</b> cancels. ${TELEPORT.cooldown} s cooldown.`,
+      text: `Hold <b>${k('teleport')}</b> to aim, release to go there (up to ${TELEPORT.range} m). Not where the seeker is looking: the marker turns red there. <b>${k('cancelTp')}</b> cancels. ${TELEPORT.cooldown} s cooldown.`,
       art: (() => {
         const d = 5;
         return wrap(`${trees([5, 9, 6])}
@@ -269,7 +269,7 @@ function slides() {
     },
     {
       role: 'Hunter', name: 'Grab', keys: [k('grab')],
-      text: `Get close (${GRAB.range} m) and face the seeker, then <b>${k('grab')}</b>. They can break free from the first two grabs (you stagger for a moment); the ${GRAB.kill === 3 ? 'third' : `${GRAB.kill}th`} one catches them and wins. ${GRAB.cooldown} s between grabs.`,
+      text: `Get close (${GRAB.range} m) and face the seeker, then <b>${k('grab')}</b>. They can break free from the first two grabs; the ${GRAB.kill === 3 ? 'third' : `${GRAB.kill}th`} one catches them and wins. ${GRAB.cooldown} s between grabs.`,
       art: (() => {
         const d = 5;
         return wrap(`${trees([5, 9])}

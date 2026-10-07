@@ -124,10 +124,14 @@ since the model is Riot's.
 The hunter is Slenderman, from `public/models/slender.glb` (`src/slender.js`): a compressed copy
 (1.4 MB, about 99k vertices, 1024 px WebP textures) of the Sketchfab sculpt in
 `models/source/slenderman.glb` (25 MB; `slenderman(1).glb` there is the same model with smaller
-textures). The sculpt has no skeleton, so he glides instead of walking, and his tentacles are
-moved in the vertex shader: when it loads, everything outside an outline of his body is marked
+textures). The sculpt has no skeleton, so he's moved in the vertex shader instead: when it loads,
+everything outside an outline of his body (capsules for the torso, head, legs and arms) is marked
 as tentacle and split into the separate tentacles, and each gets a curl (and a stretch) that
-wraps it around the seeker on a grab. Without the file he falls back to a simple figure.
+wraps it around the seeker on a grab; the rest of the time each one curls one way and another,
+the tips whipping most, like Venom's. The same outline tells which points are his legs and arms,
+so he walks: each leg swings from the hip and bends at the knee, and the arms swing against them
+(in the duel he holds the Classic out in front: the sculpt's arms are fused to his jacket all the
+way down, so his own right arm is tucked into his side and a separate raised arm holds the gun). Without the file he falls back to a simple figure.
 The role cards in the lobby show 3D renders of both characters (`src/portraits.js`).
 
 ## Layout

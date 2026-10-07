@@ -6,7 +6,7 @@
 // lift (the seeker held up off the ground: the last grab).
 import * as THREE from 'three';
 import { isoReady, cloneIso } from './iso.js';
-import { slenderReady, makeSlender } from './slender.js';
+import { slenderReady, makeSlender, gunArm } from './slender.js';
 import { buildNocturnum } from './skins/nocturnum.js';
 import { settings } from './settings.js';
 
@@ -20,20 +20,29 @@ export function hunterFigure() {
   return slenderReady() ? slenderHunter() : blockHunter();
 }
 
-// Slenderman: a statue, so he glides instead of walking (it suits him), swaying a little and
-// leaning into it when he moves. His tentacles writhe; on a grab they close around the seeker.
+// Slenderman: he walks with long, slow strides (his legs and arms are swung in his shader, see
+// slender.js), leaning a little into it, and sways when he stands. His tentacles writhe; on a grab
+// they close around the seeker.
 function slenderHunter() {
   const g = new THREE.Group();
   const body = makeSlender();
   g.add(body);
   const t = body.userData.tentacles;
-  let lean = 0;
+  g.userData.tentacles = t;
+  let lean = 0, stride = 0, phase = 0;
   g.userData.animate = (dt, speed, time, pose = {}) => {
     t.uTime.value = time;
     t.uGrab.value = pose.grab ?? 0;
+    // a stride of about 2.2 m, so his feet keep up with the ground; still while he grabs
+    const want = THREE.MathUtils.smoothstep(speed, 0.2, 2.2) * (1 - (pose.grab ?? 0));
+    stride += (want - stride) * Math.min(1, dt * 6);
+    phase += dt * speed * 2.85;
+    t.uPhase.value = phase;
+    t.uStride.value = stride;
     lean += (Math.min(1, speed / 4) - lean) * Math.min(1, dt * 4);
-    body.rotation.set(-0.1 * lean, 0, Math.sin(time * 0.7) * 0.02);
-    body.position.y = Math.sin(time * 1.1) * 0.03;
+    body.rotation.set(-0.05 * lean, 0, Math.sin(time * 0.7) * 0.02 * (1 - stride));
+    // he dips a little at each step, and sways gently while standing
+    body.position.y = -Math.abs(Math.sin(phase)) * 0.035 * stride + Math.sin(time * 1.1) * 0.02 * (1 - stride);
   };
   return g;
 }
@@ -318,16 +327,55 @@ export function addXray(figure) {
   return figure.userData.xray;
 }
 
-// The hunter's Classic, for the final duel: held low in his right hand, pointing ahead.
-// (Slenderman's hands hang at his sides, about 1.2 m up; it's a little bigger, for his size.)
+// Slenderman's raised gun arm for the duel (his own is tucked away, see HOLD in slender.js): a
+// long black sleeve from his shoulder, a white cuff and a pale hand closed round the grip.
+function slenderGunArm() {
+  const { shoulder, hand, length } = gunArm();
+  const g = new THREE.Group();
+  const suit = new THREE.MeshStandardMaterial({ color: 0x16161b, roughness: 0.7 });
+  const shirt = new THREE.MeshStandardMaterial({ color: 0xd8d6d0, roughness: 0.8 });
+  const skin = new THREE.MeshStandardMaterial({ color: 0xe6e3dd, roughness: 0.45 });
+  const dir = hand.clone().sub(shoulder).normalize(), up = new THREE.Vector3(0, 1, 0);
+  const along = (mesh, at) => { mesh.quaternion.setFromUnitVectors(up, dir); mesh.position.copy(shoulder).addScaledVector(dir, at); return mesh; };
+  // the sleeve, a little thicker at the shoulder, ending just short of the hand
+  const sleeveLen = length - 0.1;
+  const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.075, sleeveLen, 14), suit);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(0.075, 14, 10), suit);
+  cap.position.copy(shoulder);
+  const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.05, 0.035, 14), shirt);
+  // the hand: a palm round the grip, long fingers wrapped under it
+  const palm = new THREE.Mesh(new THREE.CapsuleGeometry(0.032, 0.06, 4, 10), skin);
+  palm.scale.set(1.1, 1, 0.8);
+  g.add(along(sleeve, sleeveLen / 2), cap, along(cuff, sleeveLen + 0.01), along(palm, length));
+  for (let i = 0; i < 3; i++) {
+    const f = new THREE.Mesh(new THREE.CapsuleGeometry(0.009, 0.06, 3, 6), skin);
+    f.position.copy(hand).add(new THREE.Vector3(-0.025 + i * 0.022, -0.035, -0.02));
+    f.rotation.x = Math.PI / 2;
+    g.add(f);
+  }
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return { group: g, hand };
+}
+
+// The hunter's Classic, for the final duel: Slenderman holds it out in front with his right arm
+// raised, aiming; the stand-in holds it at his side. It's a little bigger, for his size.
 export function armHunter(figure) {
   const skin = buildNocturnum(settings.skin);
   const gun = new THREE.Group();
   gun.add(skin.group);
-  gun.position.set(0.37, 1.17, -0.1);
+  if (figure.userData.tentacles) {
+    figure.userData.tentacles.uHold.value = 1;
+    const arm = slenderGunArm();
+    // its grip in his palm: the gun's origin sits above and in front of the grip (as in Iso's
+    // hand, scaled up with the gun)
+    gun.position.copy(arm.hand).add(new THREE.Vector3(0, 0.06, -0.045).multiplyScalar(1.3));
+    figure.children[0].add(arm.group, gun); // (with his body, so they sway and dip with him)
+  } else {
+    gun.position.set(0.37, 1.17, -0.1);
+    figure.add(gun);
+  }
   gun.scale.setScalar(1.3);
   gun.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  figure.add(gun);
   figure.userData.skin = skin;
 }
 

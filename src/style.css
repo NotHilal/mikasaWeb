@@ -352,6 +352,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 .ht-keys:empty { display: none; }
 .ht-keys i { font: 600 13px var(--cond); font-style: normal; letter-spacing: 0.08em; padding: 4px 10px; background: var(--ink); color: var(--navy); }
 .ht-text { font-size: 16px; line-height: 1.55; color: rgba(236, 232, 225, 0.82); margin: 0; }
+.ht-line { display: block; }
+.ht-line + .ht-line { margin-top: 7px; }
 .ht-text b { color: var(--ink); background: rgba(236, 232, 225, 0.12); padding: 0 6px; font-weight: 600; white-space: nowrap; }
 .ht-foot { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .ht-dots { display: flex; gap: 6px; }

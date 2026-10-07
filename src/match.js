@@ -443,7 +443,7 @@ export class Match {
       gravity: DART.gravity, pulses: DART.pulses, gap: DART.pulseGap, radius: DART.radius,
       onPulse: (p) => {
         audio.play('scan', this.at(p));
-        // the zone shows on both maps: the seeker's own, and the hunter's (he sees where she's searching)
+        // the zone shows on both maps: the seeker's own, and the hunter's (he sees where Iso is searching)
         this.mapScan(p, DART.radius, 'dart');
         if (!mine) return;
         this.dartFindsPage(p);

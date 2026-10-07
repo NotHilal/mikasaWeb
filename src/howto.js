@@ -85,7 +85,7 @@ function slides() {
   return [
     {
       role: 'Both', name: 'The game', keys: [],
-      text: `One of you is <b>Iso</b>, the seeker, with a flashlight and a pistol. The other is <b>Slender</b>, the hunter, tall, quick to strike and hard to shake off. Iso has to find the <b>${PAGES} pages</b> pinned around the dark forest. Slender has to stop her: his <b>${GRAB.kill === 3 ? 'third' : `${GRAB.kill}th`} grab</b> catches her and ends the round. Each of you has abilities to help: the next slides show them.`,
+      text: `One of you is <b>Iso</b>, the seeker, with a flashlight and a pistol. The other is <b>Slender</b>, the hunter, tall, quick to strike and hard to shake off. Iso has to find the <b>${PAGES} pages</b> pinned around the dark forest. Slender has to stop him: his <b>${GRAB.kill === 3 ? 'third' : `${GRAB.kill}th`} grab</b> catches him and ends the round. Each of you has abilities to help: the next slides show them.`,
       art: (() => {
         const d = 6;
         return wrap(`${trees([4, 6])}
@@ -93,7 +93,7 @@ function slides() {
           <g>${T('250 60;205 85;250 60', '0;0.5;1', d)}${hunter({ angle: -120 })}</g>${text(252, 36, 'SLENDER · HUNTER', { size: 11, fill: PURPLE })}
           ${[0, 1, 2, 3, 4, 5, 6].map((i) => `<rect x="${57 + i * 10}" y="20" width="7" height="9" fill="#d9d4c5">${A('opacity', '0.2;0.2;1;1', `0;${0.1 + i * 0.1};${0.1 + i * 0.1 + 0.001};1`, d, 'discrete')}</rect>`).join('')}
           ${text(92, 46, `FIND ALL ${PAGES} PAGES`, { size: 11, fill: TEAL })}
-          ${text(252, 186, `${GRAB.kill} GRABS CATCH HER`, { size: 11, fill: PURPLE })}`);
+          ${text(252, 186, `${GRAB.kill} GRABS CATCH HIM`, { size: 11, fill: PURPLE })}`);
       })(),
     },
     {
@@ -133,7 +133,7 @@ function slides() {
     },
     {
       role: 'Seeker', name: 'Recon dart', keys: [k('dart')],
-      text: `<b>${k('dart')}</b> fires a dart that scans ${DART.pulses} times, ${DART.radius} m round. If the hunter is inside, you see him through the trees for a moment. The zone shows on both minimaps, yours and his: he sees where you're searching. ${DART.cooldown} s cooldown.`,
+      text: `<b>${k('dart')}</b> fires a dart that scans ${DART.pulses} times, ${DART.radius} m round. If the hunter is inside, you see him through the trees for a moment. ${DART.cooldown} s cooldown.`,
       art: (() => {
         const d = 5, pulse = (s) => `<circle cx="170" cy="100" fill="none" stroke="${TEAL}" stroke-width="2">${A('r', '0;0;75;75', `0;${s};${s + 0.14};1`, d)}${A('opacity', '0;0;0.9;0;0', `0;${s - 0.001};${s};${s + 0.14};1`, d)}</circle>`;
         return wrap(`${trees([2])}
@@ -302,7 +302,7 @@ function slides() {
     },
     {
       role: 'Both', name: 'The minimap', keys: [],
-      text: `Top left: the forest from above, north up, its edge in red. The arrow is you, pointing where you look; white diamonds are pages already taken. Scans show as zones: the seeker's <b style="color:${TEAL}">dart</b> on both maps, the hunter's <b style="color:${PINK}">eye</b> on his only. It never shows the other player, or a page still to find.`,
+      text: `On the map at the top left, the arrow is you, pointing where you look; white diamonds are pages already taken. Scans show as zones: the seeker's <b style="color:${TEAL}">dart</b> on both maps, the hunter's <b style="color:${PINK}">eye</b> on his only. It never shows the other player, or a page still to find.`,
       art: (() => {
         const d = 6, cx = 100, cy = 100, r = 80;
         const zone = (x, y, rr, col, a, b) => `<circle cx="${x}" cy="${y}" fill="${col}" fill-opacity=".22" stroke="${col}" stroke-width="2">`
@@ -348,7 +348,9 @@ function render() {
   $('#ht-role').className = `ht-role ${s.role.toLowerCase()}`;
   $('#ht-name').textContent = s.name;
   $('#ht-keys').innerHTML = s.keys.map((k) => `<i>${k}</i>`).join('');
-  $('#ht-text').innerHTML = s.text;
+  // one sentence per line, easier to read than one block (a sentence ends at . ! or ? followed by a
+  // space and a capital letter or a key)
+  $('#ht-text').innerHTML = s.text.split(/(?<=[.!?])\s+(?=[A-Z<])/).map((l) => `<span class="ht-line">${l}</span>`).join('');
   $('#ht-art').innerHTML = s.art; // (a fresh SVG: its animation starts from the beginning)
   $('#ht-count').textContent = `${at + 1} / ${list.length}`;
   $('#ht-dots').innerHTML = list.map((_, i) => `<button class="${i === at ? 'on' : ''}" data-ht="${i}" aria-label="Slide ${i + 1}"></button>`).join('');

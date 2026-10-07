@@ -11,7 +11,7 @@ import { createMinimap, SCAN_SHOW, SCAN_COLOR } from './minimap.js';
 import { crouchK } from './player.js';
 import { rng } from './world/noise.js';
 import { actionFor, key, label, mouseCode } from './keys.js';
-import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT, SCARE, PAGE_ZONES } from './config.js';
+import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT, SCARE, PAGE_ZONES, RUSH } from './config.js';
 
 const INTERP_MS = 110; // the other player is drawn this far in the past, to smooth over network jitter
 const v3 = (a) => new THREE.Vector3().fromArray(a);
@@ -74,12 +74,12 @@ if (import.meta.env.DEV) {
   });
 }
 
-const COOLDOWN = { dart: DART.cooldown, flash: FLASH.cooldown, dash: DASH.cooldown, tp: TELEPORT.cooldown, eye: EYE.cooldown, grab: GRAB.cooldown };
+const COOLDOWN = { dart: DART.cooldown, flash: FLASH.cooldown, dash: DASH.cooldown, tp: TELEPORT.cooldown, eye: EYE.cooldown, rush: RUSH.cooldown, grab: GRAB.cooldown };
 
 // ability slots shown in the HUD, per role: [key binding, name, cooldown id]
 const KIT = {
   seeker: [['dart', 'Recon', 'dart'], ['flash', 'Flash', 'flash'], ['dash', 'Dash', 'dash']],
-  hunter: [['teleport', 'Teleport', 'tp'], ['eye', 'Eye', 'eye'], ['grab', 'Grab', 'grab']],
+  hunter: [['teleport', 'Teleport', 'tp'], ['eye', 'Eye', 'eye'], ['rush', 'Sprint', 'rush'], ['grab', 'Grab', 'grab']],
 };
 const turnTo = (from, to, k) => from + ((((to - from + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2) - Math.PI) * k;
 
@@ -96,7 +96,8 @@ export class Match {
     this.ammo = GUN.ammo;
     this.reloadUntil = 0;
     // abilities: seconds until ready
-    this.cd = role === 'seeker' ? { dart: 0, flash: 0, dash: 0 } : { tp: 0, eye: 0, grab: 0 };
+    this.cd = role === 'seeker' ? { dart: 0, flash: 0, dash: 0 } : { tp: 0, eye: 0, rush: 0, grab: 0 };
+    this.rushUntil = 0; // (hunter) sprinting until
     // the grab: how many times the hunter has grabbed the seeker (both screens count), and the
     // one in progress: { n, kill, start, until, need, drain, progress } (times in ms)
     this.grabs = 0;
@@ -212,6 +213,7 @@ export class Match {
       } else {
         if (a === 'teleport') this.startAim();
         if (a === 'eye') this.useEye();
+        if (a === 'rush') this.useRush();
         if (a === 'grab') this.tryGrab();
         if (a === 'cancelTp' && this.aiming) this.cancelAim();
       }
@@ -278,6 +280,7 @@ export class Match {
       if (this[k]) this[k] += gap;
     }
     if (this.tpCast) this.tpCast.until += gap;
+    if (this.rushUntil) this.rushUntil += gap;
     for (const s of this.scans) s.at += gap;
     if (this.cdT) this.cdT += gap; // (the cooldowns don't count the pause)
     this.lastPageAt += gap;
@@ -659,6 +662,28 @@ export class Match {
 
   // --- hunter: eye ------------------------------------------------------------------------
 
+  // --- hunter: sprint ----------------------------------------------------------------------
+  // RUSH.speed × his walk for RUSH.time seconds; a stun or a grab ends it early. The seeker hears
+  // it start, where he is.
+  useRush() {
+    if (this.cd.rush > 0 || this.stunned || this.tpCast || this.rushUntil) return audio.play('deny');
+    if (this.aiming) this.cancelAim();
+    this.cd.rush = RUSH.cooldown;
+    this.rushUntil = now() + RUSH.time * 1000;
+    this.player.boost = RUSH.speed;
+    this.engine.film.uniforms.uStatic.value = Math.max(this.engine.film.uniforms.uStatic.value, 0.25);
+    this.fovKick = 1; // (a quick lunge of the view)
+    this.send('fx', { k: 'rush', p: arr(this.player.pos) });
+    audio.play('rush');
+    this.renderHud();
+  }
+
+  endRush() {
+    this.rushUntil = 0;
+    this.player.boost = 1;
+    this.renderHud();
+  }
+
   // press once to throw the eye; press again while it's flying to stop it there and reveal
   useEye() {
     if (this.eyeOut?.flying) {
@@ -894,6 +919,7 @@ export class Match {
       case 'dash': this.effects.wind(v3(d.p), d.d ? v3(d.d) : new THREE.Vector3(0, 0, -1)); audio.play('dash', this.at(v3(d.p))); break;
       case 'eye': this.remoteEye = this.launchEye(v3(d.p), v3(d.d), false); audio.play('eye', this.at(v3(d.p))); break;
       case 'eyestop': this.remoteEye?.stop(v3(d.p)); this.remoteEye = null; break; // stopped early: at the hunter's spot
+      case 'rush': audio.play('rush', this.at(v3(d.p))); break; // (the seeker hears him start to run)
       case 'tpcast':
         this.effects.tpWindup(v3(d.from), TELEPORT.castMs / 1000);
         this.effects.tpWindup(v3(d.to), TELEPORT.castMs / 1000);
@@ -921,8 +947,9 @@ export class Match {
       const state = el.querySelector('.state'), bar = el.querySelector('.cd');
       const left = this.cd[id], total = COOLDOWN[id];
       el.classList.toggle('cooling', left > 0);
-      el.classList.toggle('active', (id === 'tp' && (this.aiming || !!this.tpCast)) || (id === 'grab' && !!this.grab) || (id === 'eye' && !!this.eyeOut?.flying));
-      state.textContent = id === 'tp' && this.tpCast ? 'casting' : id === 'eye' && this.eyeOut?.flying ? 'stop' : left > 0 ? `${Math.ceil(left)}s` : id === 'tp' && this.aiming ? 'release'
+      el.classList.toggle('active', (id === 'tp' && (this.aiming || !!this.tpCast)) || (id === 'grab' && !!this.grab) || (id === 'eye' && !!this.eyeOut?.flying) || (id === 'rush' && !!this.rushUntil));
+      state.textContent = id === 'tp' && this.tpCast ? 'casting' : id === 'eye' && this.eyeOut?.flying ? 'stop' : id === 'rush' && this.rushUntil ? 'running'
+        : left > 0 ? `${Math.ceil(left)}s` : id === 'tp' && this.aiming ? 'release'
         : id === 'grab' ? (this.grab ? 'holding' : `${this.grabs} / ${GRAB.kill}`) : 'ready';
       bar.style.width = `${(left / total) * 100}%`;
     }
@@ -1009,6 +1036,8 @@ export class Match {
       // a stun interrupts a teleport wind-up
       if (this.tpCast && this.stunned) { this.tpCast = null; this.renderHud(); }
       if (this.tpCast && now() >= this.tpCast.until) this.finishTeleport();
+      // the sprint: over when its time's up, or at once if he's stunned or grabs
+      if (this.rushUntil && (t >= this.rushUntil || this.stunned || this.grab)) this.endRush();
       player.frozen = this.stunned || !!this.tpCast || !!this.grab;
       film.uTint.value += ((this.stunned ? 1 : 0) - film.uTint.value) * Math.min(1, dt * 8);
     } else player.frozen = !!this.grab;
@@ -1248,6 +1277,7 @@ export class Match {
     this.viewmodel.visible = false;
     this.player.enabled = false;
     this.player.frozen = false;
+    this.player.boost = 1;
     this.setPrompt(null);
     $('#status').classList.remove('show');
     $('#escape').classList.remove('show');

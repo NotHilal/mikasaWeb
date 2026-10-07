@@ -38,6 +38,7 @@ export class Player {
     this.vy = 0;
     this.jumpHeld = false;
     this.crouch = 0;       // 0 standing .. 1 crouched (eased)
+    this.boost = 1;        // × speed from an ability (the hunter's sprint)
 
     // keys and mouse buttons held down, by code ('KeyW', 'Mouse0', …: see keys.js)
     addEventListener('keydown', (e) => {
@@ -75,6 +76,7 @@ export class Player {
     this.air = 0;
     this.vy = 0;
     this.crouch = 0;
+    this.boost = 1;
     this.lastGround = undefined;
     this.yaw = lookAt ? Math.atan2(-(lookAt.x - pos.x), -(lookAt.z - pos.z)) : 0;
     this.pitch = 0;
@@ -140,7 +142,7 @@ export class Player {
       if (st.stamina) this.stamina = Math.min(st.stamina, this.stamina + dt * st.staminaRegen * (input.lengthSq() ? 0.6 : 1));
     }
     const speed = (this.sprinting ? st.sprint : st.walk * (input.y < 0 ? 0.75 : 1)) * THREE.MathUtils.lerp(1, CROUCH.speed, this.crouch)
-      * (this.quiet ? QUIET.speed : 1);
+      * (this.quiet ? QUIET.speed : 1) * this.boost;
 
     // world-space wish direction from yaw only
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);

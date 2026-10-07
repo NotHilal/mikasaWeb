@@ -126,6 +126,12 @@ const SOUNDS = {
     noiseHit(d, t, { freq: 320, q: 1, attack: 0.01, decay: 0.28, vol: 1.1, sweepTo: 80 });
     tone(d, t, { type: 'sawtooth', from: 95, to: 42, attack: 0.02, decay: 0.7, vol: 0.2 });
   },
+  // the hunter breaks into a sprint: a rising rush of air over a low snarl
+  rush(d, t) {
+    noiseHit(d, t, { type: 'bandpass', freq: 300, q: 0.9, attack: 0.08, decay: 0.55, vol: 1.1, sweepTo: 1800 });
+    tone(d, t, { type: 'sawtooth', from: 70, to: 110, attack: 0.05, decay: 0.5, vol: 0.18 });
+    tone(d, t + 0.03, { type: 'sawtooth', from: 73, to: 104, attack: 0.05, decay: 0.45, vol: 0.12 });
+  },
   // the jumpscare, when sounds/jumpscare.mp3 isn't there: a burst of shrieking noise over a low hit
   scare(d, t) {
     noiseHit(d, t, { type: 'highpass', freq: 1200, attack: 0.005, decay: 1.1, vol: 1.6, sweepTo: 4000 });

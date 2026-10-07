@@ -6,7 +6,7 @@
 // the maps seen from above, Slenderman whole in the side views.
 import { label } from './keys.js';
 import { characterImages } from './portraits.js';
-import { GUN, DART, PAGE_HINT, PAGE_ZONES, FLASH, DASH, TELEPORT, EYE, GRAB, PAGES, QUIET } from './config.js';
+import { GUN, DART, PAGE_HINT, PAGE_ZONES, FLASH, DASH, TELEPORT, EYE, GRAB, PAGES, QUIET, RUSH } from './config.js';
 import { $ } from './ui.js';
 
 const TEAL = '#3fe0c5', PURPLE = '#a87bff', RED = '#ff4655', INK = '#ece8e1', DIM = '#2a3440', KEY = '#1b2733', SHIELD = '#8ce6ff';
@@ -265,6 +265,19 @@ function slides() {
           <circle cx="210" cy="80" fill="none" stroke="${PURPLE}" stroke-width="2">${A('r', '0;0;80;80', '0;0.5;0.66;1', d)}${A('opacity', '0;0;0.9;0;0', '0;0.499;0.5;0.66;1', d)}</circle>
           <g transform="translate(262 40)">${A('opacity', '0.25;1;0.25', '0;0.52;0.9', d, 'discrete')}${seeker({ angle: -90, extra: A('fill', `${DIM};${RED};${DIM}`, '0;0.52;0.9', d, 'discrete') })}</g>
           <g>${shown(0.52, 0.9, d)}${text(262, 72, 'REVEALED', { fill: RED, size: 12 })}</g>`);
+      })(),
+    },
+    {
+      role: 'Hunter', name: 'Sprint', keys: [k('rush')],
+      text: `<b>${k('rush')}</b> runs ${RUSH.speed === 2 ? 'twice as fast' : `${RUSH.speed}× as fast`} for ${RUSH.time} s. The seeker hears you break into it. A stun ends it at once. ${RUSH.cooldown} s cooldown.`,
+      art: (() => {
+        const d = 4;
+        return wrap(`${trees([5, 9])}
+          ${[0, 1, 2].map((i) => `<line x1="${70 + i * 8}" y1="${92 + i * 8}" x2="${150 + i * 8}" y2="${92 + i * 8}" stroke="${PURPLE}" stroke-width="2" stroke-linecap="round">${A('opacity', '0;0;0.7;0.7;0', '0;0.2;0.25;0.7;0.75', d)}</line>`).join('')}
+          <g>${T('60 100;60 100;100 100;250 100;260 100', '0;0.2;0.25;0.7;1', d)}${hunter({ angle: 90 })}</g>
+          <circle cx="60" cy="100" fill="none" stroke="${PURPLE}" stroke-width="2">${A('r', '0;0;40;40', '0;0.2;0.35;1', d)}${A('opacity', '0;0;0.8;0;0', '0;0.199;0.2;0.35;1', d)}</circle>
+          <g>${shown(0.18, 0.26, d)}${keycap(60, 60, k('rush'))}</g>
+          <g>${shown(0.25, 0.7, d)}${text(160, 150, `×${RUSH.speed} · ${RUSH.time} S`, { size: 16, fill: PURPLE })}</g>`);
       })(),
     },
     {

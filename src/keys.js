@@ -26,6 +26,7 @@ export const ACTIONS = [
   ['teleport', 'Teleport (hold)', 'Hunter', 'KeyQ'],
   ['cancelTp', 'Cancel teleport', 'Hunter', 'Mouse2'],
   ['eye', 'Eye', 'Hunter', 'KeyE'],
+  ['rush', 'Sprint (3 s)', 'Hunter', 'KeyC'],
   ['grab', 'Grab', 'Hunter', 'KeyF'],
 ];
 const GROUP = Object.fromEntries(ACTIONS.map(([id, , group]) => [id, group]));

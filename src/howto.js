@@ -87,8 +87,8 @@ function slides() {
       })(),
     },
     {
-      role: 'Seeker', name: 'Classic', keys: [k('shoot')],
-      text: `<b>${k('shoot')}</b> fires. ${GUN.ammo} rounds, then it reloads by itself in ${GUN.reloadMs / 1000} s. A body hit stuns the hunter for ${GUN.bodyStunMs / 1000} s, a headshot for ${GUN.headStunMs / 1000} s: he can't move or use anything while he glows red.`,
+      role: 'Seeker', name: 'Classic', keys: [k('shoot'), k('reload')],
+      text: `<b>${k('shoot')}</b> fires. ${GUN.ammo} rounds, then it reloads by itself in ${GUN.reloadMs / 1000} s; <b>${k('reload')}</b> reloads before that (same time, no shooting meanwhile). A body hit stuns the hunter for ${GUN.bodyStunMs / 1000} s, a headshot for ${GUN.headStunMs / 1000} s: he can't move or use anything while he glows red.`,
       art: (() => {
         const d = 4.5;
         return wrap(`

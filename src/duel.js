@@ -14,6 +14,7 @@ import { $, hud } from './ui.js';
 import { settings } from './settings.js';
 import { key, mouseCode } from './keys.js';
 import { raySphere, rayCylinder, remoteAt } from './match.js';
+import { crouchK } from './player.js';
 import { SEEKER, HUNTER, NET_HZ, DUEL } from './config.js';
 
 const now = () => performance.now();
@@ -283,6 +284,7 @@ export class Duel {
     const press = (code) => {
       if (!this.player.enabled || this.over || !document.pointerLockElement) return;
       if (code === key('shoot')) this.shoot();
+      else if (code === key('reload')) this.reload();
       else if (code === key('inspect')) this.viewmodel.inspect();
     };
     this.onKey = (e) => { if (!e.repeat) press(e.code); };
@@ -355,15 +357,23 @@ export class Duel {
 
   // --- the Classic -----------------------------------------------------------------------
 
+  // R (or by itself once it's empty): it can't fire until it's full again
+  reload() {
+    if (this.reloadUntil || this.dead || this.ammo >= DUEL.ammo) return;
+    this.reloadUntil = now() + DUEL.reloadMs;
+    this.viewmodel.reload(DUEL.reloadMs / 1000);
+    this.renderHud();
+  }
+
   shoot() {
     const t = now();
     if (this.phase !== 'live' || this.dead || this.pausedAt || t - this.lastShot < DUEL.fireMs) return;
-    if (this.ammo <= 0) { audio.play('dry'); return; } // reloading
+    if (this.reloadUntil || this.ammo <= 0) { audio.play('dry'); return; } // reloading
     this.lastShot = t;
     this.ammo--;
     this.stats.shots++;
-    if (this.ammo === 0) { this.reloadUntil = t + DUEL.reloadMs; this.viewmodel.reload(DUEL.reloadMs / 1000); }
     this.viewmodel.recoil();
+    if (this.ammo === 0) this.reload();
     audio.play('shot');
     const origin = this.engine.camera.position.clone(), dir = this.player.forward;
     this.player.pitch = Math.min(1.45, this.player.pitch + 0.012); // a little kick, after the shot
@@ -389,11 +399,11 @@ export class Duel {
 
   // where a shot from origin along dir first meets the other player: { t, part } or null
   hitTest(origin, dir, rs) {
-    const hb = DUEL.hitbox[this.other];
+    const hb = DUEL.hitbox[this.other], h = crouchK(rs.cr); // (all heights shrink when they crouch)
     const parts = {
-      head: raySphere(origin, dir, new THREE.Vector3(rs.x, rs.y + hb.head[0], rs.z), hb.head[1]),
-      body: rayCylinder(origin, dir, rs.x, rs.z, hb.body[2], rs.y + hb.body[0], rs.y + hb.body[1]),
-      legs: rayCylinder(origin, dir, rs.x, rs.z, hb.legs[2], rs.y + hb.legs[0], rs.y + hb.legs[1]),
+      head: raySphere(origin, dir, new THREE.Vector3(rs.x, rs.y + hb.head[0] * h, rs.z), hb.head[1]),
+      body: rayCylinder(origin, dir, rs.x, rs.z, hb.body[2], rs.y + hb.body[0] * h, rs.y + hb.body[1] * h),
+      legs: rayCylinder(origin, dir, rs.x, rs.z, hb.legs[2], rs.y + hb.legs[0] * h, rs.y + hb.legs[1] * h),
     };
     let best = null;
     for (const part in parts) if (parts[part] !== null && (!best || parts[part] < best.t)) best = { t: parts[part], part };
@@ -488,7 +498,7 @@ export class Duel {
     $('#hp-v').textContent = hp;
     $('#hp-fill').style.width = `${(hp / DUEL.hp) * 100}%`;
     $('#duel-hp').classList.toggle('low', hp <= DUEL.hp * 0.25);
-    const reloading = this.ammo === 0;
+    const reloading = !!this.reloadUntil;
     $('#ammo').innerHTML = `<div class="n ${reloading ? 'empty' : ''}">${this.ammo}<small>/${DUEL.ammo}</small></div><div class="w">${reloading ? 'Reloading' : 'Classic'}</div>`
       + (reloading ? '<div class="reload"><i id="reload-fill"></i></div>' : '');
   }
@@ -526,7 +536,7 @@ export class Duel {
 
   sendState() {
     const p = this.player, r = (v) => Math.round(v * 100) / 100;
-    this.send('s', { x: r(p.pos.x), y: r(p.pos.y), z: r(p.pos.z), yaw: r(p.yaw), pitch: r(p.pitch), sp: this.spawns });
+    this.send('s', { x: r(p.pos.x), y: r(p.pos.y), z: r(p.pos.z), yaw: r(p.yaw), pitch: r(p.pitch), sp: this.spawns, cr: r(p.crouch) });
   }
 
   // freeze while a player is disconnected (see main.js), and carry on afterwards
@@ -561,8 +571,8 @@ export class Duel {
     player.lift = this.dead ? -THREE.MathUtils.smoothstep(t - this.deadAt, 0, 500) * (player.stats.eye - 0.45) : 0;
     player.update(dt);
 
-    // the Classic reloads by itself once empty
-    if (this.ammo === 0 && this.reloadUntil) {
+    // reloading (R, or by itself once empty): full again when it's done
+    if (this.reloadUntil) {
       const fill = document.getElementById('reload-fill');
       if (fill) fill.style.width = `${(1 - Math.max(0, this.reloadUntil - t) / DUEL.reloadMs) * 100}%`;
       if (t >= this.reloadUntil) { this.ammo = DUEL.ammo; this.reloadUntil = 0; audio.play('ready'); this.renderHud(); }
@@ -590,6 +600,7 @@ export class Duel {
     if (rs) {
       r.position.set(rs.x, rs.y, rs.z);
       r.rotation.y = rs.yaw;
+      r.scale.y = crouchK(rs.cr); // crouching
       const moved = this.lastRemote ? Math.hypot(rs.x - this.lastRemote.x, rs.z - this.lastRemote.z) / Math.max(dt, 1e-3) : 0;
       this.lastRemote = { x: rs.x, z: rs.z };
       this.remoteSpeed = (this.remoteSpeed ?? 0) + ((moved > 15 ? 0 : moved) - (this.remoteSpeed ?? 0)) * Math.min(1, dt * 8);

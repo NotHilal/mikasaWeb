@@ -3,3 +3,7 @@ dist
 shots
 .env
 .env.local
+.vercel
+.env*
+# (not a secret: where the relay is; Vercel's builds from GitHub need it)
+!.env.production

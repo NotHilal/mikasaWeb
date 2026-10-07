@@ -7,9 +7,10 @@ import { hunterFigure, seekerFigure, addXray, addShield, setStunGlow } from './f
 import { audio } from './audio.js';
 import { $, flash, hud, toast } from './ui.js';
 import { settings } from './settings.js';
-import { createMinimap } from './minimap.js';
+import { createMinimap, SCAN_SHOW, SCAN_COLOR } from './minimap.js';
+import { crouchK } from './player.js';
 import { actionFor, key, label, mouseCode } from './keys.js';
-import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT, SCARE } from './config.js';
+import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT, SCARE, PAGE_ZONES } from './config.js';
 
 const INTERP_MS = 110; // the other player is drawn this far in the past, to smooth over network jitter
 const v3 = (a) => new THREE.Vector3().fromArray(a);
@@ -57,6 +58,7 @@ export function remoteAt(s) {
   return {
     x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k,
     yaw: a.yaw + dy * k, pitch: a.pitch + (b.pitch - a.pitch) * k, fl: b.fl,
+    cr: (a.cr ?? 0) + ((b.cr ?? 0) - (a.cr ?? 0)) * k, // crouched (0..1)
   };
 }
 
@@ -198,6 +200,7 @@ export class Match {
       if (this.grab) { if (code === key('escape')) this.struggle(); return; }
       if (role === 'seeker') {
         if (a === 'shoot') this.shoot();
+        if (a === 'reload') this.reload();
         if (a === 'light') { flashlight.on = !flashlight.on; audio.click(); }
         if (a === 'take') this.tryTake();
         if (a === 'dart') this.useDart();
@@ -236,6 +239,7 @@ export class Match {
     $('#tb-total').textContent = PAGES;
     this.minimap = createMinimap($('#minimap'), world);
     this.mapT = 0;
+    this.scans = []; // zones my dart or eye scanned, for the minimap: { x, z, r, color, at }
     this.renderHud();
     hud(true);
     this.showCount();
@@ -272,6 +276,7 @@ export class Match {
       if (this[k]) this[k] += gap;
     }
     if (this.tpCast) this.tpCast.until += gap;
+    for (const s of this.scans) s.at += gap;
     this.lastPageAt += gap;
     if (this.pageReveal) this.pageReveal.until += gap;
     if (this.grab) { this.grab.start += gap; this.grab.until += gap; }
@@ -332,11 +337,19 @@ export class Match {
 
   // --- seeker: pistol ------------------------------------------------------------------
 
+  // R (or by itself once it's empty): the Classic can't fire until it's full again
+  reload() {
+    if (this.reloadUntil || this.ammo >= GUN.ammo) return;
+    this.reloadUntil = now() + GUN.reloadMs;
+    this.viewmodel.reload(GUN.reloadMs / 1000);
+    this.renderHud();
+  }
+
   shoot() {
-    if (this.ammo <= 0) { audio.play('dry'); return; } // reloading
+    if (this.reloadUntil || this.ammo <= 0) { audio.play('dry'); return; } // reloading
     this.ammo--;
-    if (this.ammo === 0) { this.reloadUntil = now() + GUN.reloadMs; this.viewmodel.reload(GUN.reloadMs / 1000); }
     this.viewmodel.recoil();
+    if (this.ammo === 0) this.reload();
     this.player.pitch = Math.min(1.45, this.player.pitch + 0.025); // a little kick
     audio.play('shot');
     const cam = this.engine.camera;
@@ -353,8 +366,9 @@ export class Match {
     const rs = this.remoteState();
     let hit = false, head = false;
     if (rs) {
-      const tHead = raySphere(origin, dir, new THREE.Vector3(rs.x, rs.y + GUN.headCenter, rs.z), GUN.headRadius);
-      const tBody = rayCylinder(origin, dir, rs.x, rs.z, GUN.bodyRadius, rs.y + 0.1, rs.y + GUN.bodyTop);
+      const h = crouchK(rs.cr); // (shorter when he crouches)
+      const tHead = raySphere(origin, dir, new THREE.Vector3(rs.x, rs.y + GUN.headCenter * h, rs.z), GUN.headRadius);
+      const tBody = rayCylinder(origin, dir, rs.x, rs.z, GUN.bodyRadius, rs.y + 0.1, rs.y + GUN.bodyTop * h);
       const t = Math.min(tHead ?? Infinity, tBody ?? Infinity);
       if (t < endDist) { hit = true; head = tHead !== null && tHead <= t; endDist = t; }
     }
@@ -427,6 +441,7 @@ export class Match {
       onPulse: (p) => {
         audio.play('scan', this.at(p));
         if (!mine) return;
+        this.mapScan(p, DART.radius, 'dart');
         this.dartFindsPage(p);
         // reveal the hunter if he's in range (the scan goes through trees, like sonar:
         // in a forest this dense a clear line of sight is rare)
@@ -435,6 +450,28 @@ export class Match {
         if (new THREE.Vector3(rs.x, rs.y + 1.5, rs.z).distanceTo(p) < DART.radius) this.reveal(DART.revealMs);
       },
     });
+  }
+
+  // seeker, once the round has run PAGE_ZONES.afterMs: each missing page gets a circle on the
+  // minimap, with the page somewhere inside it (not at the middle)
+  showPageZones() {
+    this.zonesShown = true;
+    const r = PAGE_ZONES.radius;
+    for (const p of this.pages) {
+      if (p.taken) continue;
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * PAGE_ZONES.offset * r;
+      p.zone = { x: p.pos.x + Math.cos(a) * d, z: p.pos.z + Math.sin(a) * d, r };
+    }
+    const left = this.pages.filter((p) => !p.taken).length;
+    this.status(`${left === 1 ? 'The last page is' : `The ${left} missing pages are`} circled on your map`, 4000);
+    audio.play('ready');
+    this.mapT = 0;
+  }
+
+  // my own dart or eye scanned here: the zone shows on my minimap for a few seconds
+  mapScan(p, r, kind) {
+    this.scans.push({ x: p.x, z: p.z, r, color: SCAN_COLOR[kind], at: now() });
+    this.mapT = 0; // (draw it now)
   }
 
   // after PAGE_HINT.afterMs without a page, a dart scan shows the closest page in its range
@@ -640,6 +677,7 @@ export class Match {
       onScan: (p) => {
         audio.play('eyeScan', this.at(p));
         if (!mine) return;
+        this.mapScan(p, EYE.radius, 'eye');
         const rs = this.remoteState();
         if (!rs) return;
         // like the dart, the eye sees through trees, but not as far
@@ -881,7 +919,7 @@ export class Match {
       bar.style.width = `${(left / total) * 100}%`;
     }
     if (this.role === 'seeker') {
-      const reloading = this.ammo === 0;
+      const reloading = !!this.reloadUntil;
       $('#ammo').innerHTML = `<div class="n ${reloading ? 'empty' : ''}">${this.ammo}</div><div class="w">${reloading ? 'Reloading' : 'Classic'}</div>`
         + (reloading ? '<div class="reload"><i id="reload-fill"></i></div>' : '');
     }
@@ -944,7 +982,7 @@ export class Match {
 
   sendState() {
     const p = this.player, r = (v) => Math.round(v * 100) / 100;
-    this.send('s', { x: r(p.pos.x), y: r(p.pos.y), z: r(p.pos.z), yaw: r(p.yaw), pitch: r(p.pitch), fl: this.flashlight.on ? 1 : 0, tp: this.tpCount });
+    this.send('s', { x: r(p.pos.x), y: r(p.pos.y), z: r(p.pos.z), yaw: r(p.yaw), pitch: r(p.pitch), fl: this.flashlight.on ? 1 : 0, tp: this.tpCount, cr: r(p.crouch) });
   }
 
   // --- every frame ---------------------------------------------------------------------------
@@ -976,11 +1014,11 @@ export class Match {
       if (Math.ceil(this.cd[k]) !== before) cdChanged = true;
       if (this.cd[k] === 0) audio.play('ready');
     }
-    // the Classic reloads by itself once it's empty
-    if (this.role === 'seeker' && this.ammo === 0) {
+    // reloading (R, or by itself once empty): full again when it's done
+    if (this.role === 'seeker' && this.reloadUntil) {
       const fill = document.getElementById('reload-fill');
       if (fill) fill.style.width = `${(1 - Math.max(0, this.reloadUntil - t) / GUN.reloadMs) * 100}%`;
-      if (t >= this.reloadUntil) { this.ammo = GUN.ammo; audio.play('ready'); cdChanged = true; }
+      if (t >= this.reloadUntil) { this.ammo = GUN.ammo; this.reloadUntil = 0; audio.play('ready'); cdChanged = true; }
     }
     if (this.eyeOut && !this.eyeOut.flying) { this.eyeOut = null; cdChanged = true; }
     if (cdChanged) this.renderHud();
@@ -1013,6 +1051,7 @@ export class Match {
       r.visible = true;
       r.position.set(rs.x, rs.y, rs.z);
       r.rotation.y = rs.yaw;
+      r.scale.y = crouchK(rs.cr); // crouching
       // walk cycle, at the speed they're really moving (a teleport's jump doesn't count)
       const moved = this.lastRemote ? Math.hypot(rs.x - this.lastRemote.x, rs.z - this.lastRemote.z) / Math.max(dt, 1e-3) : 0;
       this.lastRemote = { x: rs.x, z: rs.z };
@@ -1065,6 +1104,8 @@ export class Match {
         this.status('Recon can now find pages', 3500);
         audio.play('ready');
       }
+      // late in the round: a rough circle round each missing page on the minimap
+      if (!this.zonesShown && !this.over && t - this.startedAt >= PAGE_ZONES.afterMs) this.showPageZones();
       // the revealed page: fades out over its last half second
       for (const p of this.pages) {
         const left = this.pageReveal?.page === p ? this.pageReveal.until - t : 0;
@@ -1107,12 +1148,15 @@ export class Match {
       st.parentElement.classList.toggle('winded', player.winded); // (the bar shows it can't be used yet)
     }
 
-    // minimap: ten times a second is plenty
+    // minimap: ten times a second is plenty (every frame while a scan's ring is spreading out)
     this.mapT -= dt;
-    if (this.mapT <= 0) {
+    this.scans = this.scans.filter((s) => t - s.at < SCAN_SHOW * 1000);
+    if (this.mapT <= 0 || this.scans.some((s) => t - s.at < 700)) {
       this.mapT = 0.1;
       this.minimap.draw({ x: player.pos.x, z: player.pos.z, yaw: player.yaw }, this.pages.filter((p) => p.taken).map((p) => p.pos),
-        devPages ? this.pages.filter((p) => !p.taken).map((p) => ({ x: p.pos.x, z: p.pos.z, n: p.n })) : []);
+        devPages ? this.pages.filter((p) => !p.taken).map((p) => ({ x: p.pos.x, z: p.pos.z, n: p.n })) : [],
+        this.scans.map((s) => ({ ...s, age: (t - s.at) / 1000 })),
+        this.pages.filter((p) => p.zone && !p.taken).map((p) => p.zone));
     }
 
     // round timer in the top bar

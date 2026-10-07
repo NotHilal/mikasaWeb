@@ -3,8 +3,12 @@
 import * as THREE from 'three';
 import { settings } from './settings.js';
 import { pressed, mouseCode } from './keys.js';
+import { CROUCH } from './config.js';
 
 const GRAVITY = 18; // m/s², a bit more than real: snappy, game-like jumps
+
+// how tall someone stands, crouched this much (0..1): for the view, the other player's figure and hitboxes
+export const crouchK = (c = 0) => 1 - (1 - CROUCH.height) * c;
 
 export class Player {
   constructor(camera, world, dom) {
@@ -33,9 +37,15 @@ export class Player {
     this.air = 0;          // jumping: height above the ground, and upward speed
     this.vy = 0;
     this.jumpHeld = false;
+    this.crouch = 0;       // 0 standing .. 1 crouched (eased)
 
     // keys and mouse buttons held down, by code ('KeyW', 'Mouse0', …: see keys.js)
-    addEventListener('keydown', (e) => { this.keys.add(e.code); });
+    addEventListener('keydown', (e) => {
+      this.keys.add(e.code);
+      // in play, Ctrl is crouch: keep Ctrl+S, Ctrl+D, … from saving, bookmarking, … (Ctrl+W and
+      // Ctrl+T can't be stopped by a page; leaving mid-round asks first, see main.js)
+      if (e.ctrlKey && document.pointerLockElement === this.dom) e.preventDefault();
+    });
     addEventListener('keyup', (e) => { this.keys.delete(e.code); });
     addEventListener('mousedown', (e) => { this.keys.add(mouseCode(e.button)); });
     addEventListener('mouseup', (e) => { this.keys.delete(mouseCode(e.button)); });
@@ -60,10 +70,14 @@ export class Player {
     this.lift = 0;
     this.air = 0;
     this.vy = 0;
+    this.crouch = 0;
     this.yaw = lookAt ? Math.atan2(-(lookAt.x - pos.x), -(lookAt.z - pos.z)) : 0;
     this.pitch = 0;
     this.eyeY = this.world.heightAt(pos.x, pos.z) + stats.eye;
   }
+
+  // how tall I stand now: 1, down to CROUCH.height when crouched
+  get heightK() { return crouchK(this.crouch); }
 
   get forward() {
     return new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
@@ -93,14 +107,20 @@ export class Player {
     const canMove = this.enabled && !this.frozen && document.pointerLockElement === this.dom;
     if (!canMove) input.set(0, 0);
 
-    // jump: once per press, from the ground
+    // crouch: while the key is held (and not in the air), eased down and up
+    const wantCrouch = pressed(k, 'crouch') && this.enabled && document.pointerLockElement === this.dom && this.air === 0 ? 1 : 0;
+    this.crouch += (wantCrouch - this.crouch) * (1 - Math.exp(-dt * 14));
+    if (Math.abs(wantCrouch - this.crouch) < 0.002) this.crouch = wantCrouch;
+    const crouched = this.crouch > 0.5;
+
+    // jump: once per press, from the ground (not crouched)
     const jumpKey = pressed(k, 'jump');
-    if (jumpKey && !this.jumpHeld && canMove && this.air === 0 && this.stats.jump) this.vy = this.stats.jump;
+    if (jumpKey && !this.jumpHeld && canMove && !crouched && this.air === 0 && this.stats.jump) this.vy = this.stats.jump;
     this.jumpHeld = jumpKey;
     if (input.lengthSq() > 1) input.normalize();
 
     const st = this.stats;
-    const wantSprint = pressed(k, 'sprint') && input.y > 0 && st.sprint;
+    const wantSprint = pressed(k, 'sprint') && input.y > 0 && st.sprint && !crouched;
     // out of breath: once the bar is empty, it has to refill to `recover` before sprinting again
     // (otherwise every sliver of regained stamina was spent at once, and the sprint never stopped)
     if (this.winded && this.stamina >= (st.recover ?? 0) * (st.stamina ?? 0)) this.winded = false;
@@ -112,7 +132,7 @@ export class Player {
       this.sprinting = false;
       if (st.stamina) this.stamina = Math.min(st.stamina, this.stamina + dt * st.staminaRegen * (input.lengthSq() ? 0.6 : 1));
     }
-    const speed = this.sprinting ? st.sprint : st.walk * (input.y < 0 ? 0.75 : 1);
+    const speed = (this.sprinting ? st.sprint : st.walk * (input.y < 0 ? 0.75 : 1)) * THREE.MathUtils.lerp(1, CROUCH.speed, this.crouch);
 
     // world-space wish direction from yaw only
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
@@ -149,7 +169,7 @@ export class Player {
     const amp = Math.min(1, moving / 3) * (this.sprinting ? 0.014 : 0.007);
 
     // smooth the eye height over bumps
-    this.eyeY += (ground + st.eye + this.lift - this.eyeY) * (1 - Math.exp(-dt * 12));
+    this.eyeY += (ground + st.eye * this.heightK + this.lift - this.eyeY) * (1 - Math.exp(-dt * 12));
     this.camera.position.set(
       this.pos.x + Math.cos(this.yaw) * Math.sin(this.bob) * amp * 0.5,
       this.eyeY + this.air + Math.abs(Math.cos(this.bob)) * amp - amp * 0.5,

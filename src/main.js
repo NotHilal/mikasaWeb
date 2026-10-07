@@ -375,6 +375,12 @@ function leaveToMenu() {
   show('menu');
 }
 
+// mid-round, closing the tab asks first: Ctrl is crouch, and Ctrl+W (crouch-walking forward)
+// closes the tab, which a page can't stop
+addEventListener('beforeunload', (e) => {
+  if (match && !match.over) { e.preventDefault(); e.returnValue = ''; }
+});
+
 // --- matches -------------------------------------------------------------------
 function startMatch(seed) {
   if (match) match.dispose();
@@ -615,7 +621,7 @@ function closeControls(force = false) {
 function renderKeyHints() {
   const move = ['forward', 'left', 'back', 'right'].map(label);
   const moveText = move.every((k) => k.length === 1) ? move.join('') : move.join(' ');
-  $('#footer-hint').innerHTML = [[moveText, 'move'], [label('sprint'), 'sprint'], [label('jump'), 'jump'], [label('shoot'), 'shoot'],
+  $('#footer-hint').innerHTML = [[moveText, 'move'], [label('sprint'), 'sprint'], [label('jump'), 'jump'], [label('crouch'), 'crouch'], [label('shoot'), 'shoot'], [label('reload'), 'reload'],
     [`${label('dart')} ${label('flash')} ${label('dash')}`, 'abilities'], [label('take'), 'take page'], [label('light'), 'light'], [label('inspect'), 'inspect']]
     .map(([k, what]) => `<span><b>${k}</b> ${what}</span>`).join('');
   for (const el of document.querySelectorAll('[data-kit]')) el.innerHTML = el.dataset.kit.split(' ').map((id) => `<i>${label(id)}</i>`).join('');

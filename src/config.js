@@ -42,6 +42,10 @@ export const SCARE = {
   fovDrop: 10,      // degrees the view narrows (his head fills the screen)
 };
 
+// Crouching (hold the key, both players): you stand `height` as tall (your view, how the other
+// player sees you, and in the duel your hitbox), move at `speed` × your walk, and can't sprint or jump.
+export const CROUCH = { height: 0.65, speed: 0.45 };
+
 export const SEEKER = {
   eye: 1.65,        // camera height (m)
   walk: 3.0,        // m/s
@@ -110,6 +114,10 @@ export const DART = { speed: 30, gravity: 6, radius: 30, pulses: 3, pulseGap: 2.
 // dart's scans also find pages: the closest one in range glows through the trees for `revealMs`
 // (on the seeker's screen only; the hunter is told a page was revealed, not where).
 export const PAGE_HINT = { afterMs: 240000, revealMs: 5000 };
+// And once the round has run `afterMs` (12 minutes), the seeker's minimap circles every page still
+// missing: `radius` metres round, the page somewhere inside but not at the middle (up to `offset`
+// of the radius away from it). A circle goes once its page is taken. The hunter doesn't see them.
+export const PAGE_ZONES = { afterMs: 12 * 60000, radius: 20, offset: 0.6 };
 export const FLASH = { speed: 15, gravity: 7, fuse: 0.55, range: 30, closeRange: 4, nearPop: 2.5, fullMs: 2200, partialMs: 700, cooldown: 20 };
 export const DASH = { distance: 7, time: 0.2, cooldown: 12 };
 

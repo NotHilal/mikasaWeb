@@ -45,6 +45,9 @@ export const SCARE = {
 // Crouching (hold the key, both players): you stand `height` as tall (your view, how the other
 // player sees you, and in the duel your hitbox), move at `speed` × your walk, and can't sprint or jump.
 export const CROUCH = { height: 0.65, speed: 0.45 };
+// Walking quietly (hold the key): `speed` × your walk, no sprinting, and your footsteps make no
+// sound (landing from a jump still does). Who can: Iso in the hunt (SEEKER.quiet), both in the duel.
+export const QUIET = { speed: 0.5 };
 
 export const SEEKER = {
   eye: 1.65,        // camera height (m)
@@ -55,6 +58,7 @@ export const SEEKER = {
   recover: 0.35,    // after running it empty, sprinting comes back once the bar is this full
   reach: 2.2,       // how close a page must be to take it
   jump: 5.7,        // take-off speed (m/s): about 0.9 m high
+  quiet: true,      // can walk quietly (QUIET)
 };
 
 export const HUNTER = {
@@ -101,7 +105,7 @@ export const DUEL = {
   endMs: 2500,       // after the deciding round, before the result screen
   // the same for both. The jump (take-off speed, m/s) is much higher than in the woods: 2 m
   // (√(2 × 18 × 2)), so both can get up on the arena's 1.6 m blocks, not the taller pillars
-  move: { walk: 5, jump: 8.49 },
+  move: { walk: 5, jump: 8.49, quiet: true }, // (both can walk quietly in the duel)
   hitbox: {
     seeker: { head: [1.64, 0.14], body: [0.95, 1.52, 0.25], legs: [0.05, 0.95, 0.2] },
     hunter: { head: [GUN.headCenter, GUN.headRadius], body: [1.3, GUN.bodyTop, GUN.bodyRadius], legs: [0.1, 1.3, 0.28] },

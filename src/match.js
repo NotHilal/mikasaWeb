@@ -138,7 +138,7 @@ export class Match {
     this.seed = seed; // (the late page circles come from it, so both screens draw the same ones)
     const mine = role === 'seeker' ? seekerSpawn : hunterSpawn;
     player.spawn(mine, role, role === 'seeker' ? SEEKER : HUNTER, new THREE.Vector3(0, 0, 0));
-    player.onStep = (speed) => audio.step(speed);
+    player.onStep = (speed) => audio.step(speed, role === 'hunter'); // (Slender's are heavier)
     player.enabled = true;
 
     // the other player

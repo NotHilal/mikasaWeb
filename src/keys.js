@@ -10,7 +10,8 @@ export const ACTIONS = [
   ['back', 'Move back', 'Movement', 'KeyS'],
   ['left', 'Move left', 'Movement', 'KeyA'],
   ['right', 'Move right', 'Movement', 'KeyD'],
-  ['sprint', 'Sprint', 'Movement', 'ShiftLeft'],
+  ['sprint', 'Sprint', 'Movement', 'AltLeft'],
+  ['walk', 'Walk quietly (hold)', 'Movement', 'ShiftLeft'],
   ['jump', 'Jump', 'Movement', 'Space'],
   ['crouch', 'Crouch (hold)', 'Movement', 'ControlLeft'],
   ['shoot', 'Shoot', 'Seeker', 'Mouse0'],
@@ -30,7 +31,9 @@ export const ACTIONS = [
 const GROUP = Object.fromEntries(ACTIONS.map(([id, , group]) => [id, group]));
 export const DEFAULT_KEYS = Object.fromEntries(ACTIONS.map(([id, , , key]) => [id, key]));
 
-// fill in actions missing from saved settings (older saves, or actions added later)
+// fill in actions missing from saved settings (older saves, or actions added later). Saves from
+// before the quiet walk had sprint on Shift: Shift is the quiet walk now, sprint goes to Left Alt.
+if (settings.keys && !settings.keys.walk && settings.keys.sprint === 'ShiftLeft') settings.keys.sprint = 'AltLeft';
 settings.keys = { ...DEFAULT_KEYS, ...settings.keys };
 
 export const key = (id) => settings.keys[id];

@@ -265,6 +265,7 @@ export class Duel {
     engine.film.uniforms.uSaturation.value = 1;
     this.savedWorld = player.world;
     player.world = this.arena.world;
+    player.onStep = (speed) => audio.step(speed, role === 'hunter'); // footsteps (Slender's heavier), as in the woods
     flashlight.on = false;
     viewmodel.visible = true;
     viewmodel.lightOn = false;

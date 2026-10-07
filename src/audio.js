@@ -1,5 +1,5 @@
-// Synthesized sound: the night-forest ambience, footsteps on leaves, the page pickup, and the gun
-// and ability sounds. The one file is the jumpscare (audio.file, SCARE in config.js).
+// Synthesized sound: the night-forest ambience, the page pickup, and the gun and ability sounds.
+// The files are the footsteps (public/sounds/steps/) and the jumpscare (audio.file, SCARE in config.js).
 import { settings } from './settings.js';
 
 let ctx = null, master = null, noiseBuf = null, whiteBuf = null;
@@ -15,6 +15,30 @@ function noise(seconds = 2) {
   }
   return b;
 }
+// Footsteps are recordings (public/sounds/steps/): each step plays one of them at random (never the
+// same twice in a row), a little higher or lower and louder or softer each time. They're quiet and
+// start with a moment of silence, so each is measured once loaded: played from where its sound
+// starts, brought up to the same loudness. Until they've loaded (or if they can't), the synthesized
+// crunch below plays instead.
+const STEP_FILES = [0, 1, 2, 3].map((n) => `sounds/steps/step${n}.mp3`);
+const STEP_PEAK = 0.55; // the loudness every step file is brought up to (its peak)
+let steps = []; // the loaded ones: { buf, gain, offset }
+let lastStep = -1;
+async function loadSteps() {
+  const loaded = await Promise.all(STEP_FILES.map(async (url) => {
+    const buf = await loadFile(url);
+    if (!buf) return null;
+    const d = buf.getChannelData(0);
+    let peak = 0;
+    for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i]));
+    if (peak < 1e-4) return null;
+    let first = 0;
+    while (first < d.length && Math.abs(d[first]) < peak * 0.08) first++;
+    return { buf, gain: Math.min(30, STEP_PEAK / peak), offset: Math.max(0, first / buf.sampleRate - 0.004) };
+  }));
+  steps = loaded.filter(Boolean);
+}
+
 // plain white noise: bright, for the crunch of leaves underfoot
 function white(seconds = 1) {
   const b = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
@@ -281,6 +305,7 @@ export const audio = {
     master.connect(ctx.destination);
     noiseBuf = noise();
     whiteBuf = white();
+    loadSteps();
     startAmbience();
   },
 
@@ -297,15 +322,36 @@ export const audio = {
     crickets.gain.setTargetAtTime(Math.max(0, 1 - k * 1.6), t, 0.6);
   },
 
-  // a footstep on dry leaf litter: no low thud at all (that was too much like the heartbeat), just
-  // the crunch: a short "shhk" of leaves pressed down, a quick crackle of tiny dry clicks, and now
-  // and then a twig snapping. Bright white noise, every value a little different each step.
-  // settings.steps is its volume.
-  step(speed) {
+  // a footstep (settings.steps is its volume; faster is a little louder). heavy: Slender's, the
+  // same sounds slower and deeper
+  step(speed, heavy = false) {
     if (!ctx || !settings.steps) return;
     const t = ctx.currentTime;
+    const vol = settings.steps * Math.min(1, 0.45 + speed * 0.08);
+    if (steps.length) {
+      // a recording: a different one from last time, pitched and leveled a little differently
+      let i = Math.floor(Math.random() * steps.length);
+      if (steps.length > 1 && i === lastStep) i = (i + 1 + Math.floor(Math.random() * (steps.length - 1))) % steps.length;
+      lastStep = i;
+      const s = steps[i];
+      const src = ctx.createBufferSource();
+      src.buffer = s.buf;
+      src.playbackRate.value = (heavy ? 0.8 : 1) * (0.92 + Math.random() * 0.16);
+      const g = ctx.createGain();
+      g.gain.value = vol * s.gain * (0.85 + Math.random() * 0.3) * (heavy ? 1.15 : 1);
+      src.connect(g).connect(master);
+      src.start(t, s.offset);
+      return;
+    }
+    this.crunch(t, vol);
+  },
+
+  // the synthesized footstep (while the recordings load, or if they can't): a step on dry leaf
+  // litter, no low thud at all (too much like the heartbeat), just the crunch: a short "shhk" of
+  // leaves pressed down, a quick crackle of tiny dry clicks, now and then a twig snapping
+  crunch(t, vol) {
     const dest = ctx.createGain();
-    dest.gain.value = settings.steps * Math.min(1, 0.45 + speed * 0.08);
+    dest.gain.value = vol;
     // (and nothing below the leaves: no rumble under it)
     const hp = ctx.createBiquadFilter();
     hp.type = 'highpass'; hp.frequency.value = 450;

@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { settings } from './settings.js';
 import { pressed, mouseCode } from './keys.js';
-import { CROUCH } from './config.js';
+import { CROUCH, QUIET } from './config.js';
 
 const GRAVITY = 18; // m/s², a bit more than real: snappy, game-like jumps
 
@@ -43,10 +43,14 @@ export class Player {
     addEventListener('keydown', (e) => {
       this.keys.add(e.code);
       // in play, Ctrl is crouch: keep Ctrl+S, Ctrl+D, … from saving, bookmarking, … (Ctrl+W and
-      // Ctrl+T can't be stopped by a page; leaving mid-round asks first, see main.js)
-      if (e.ctrlKey && document.pointerLockElement === this.dom) e.preventDefault();
+      // Ctrl+T can't be stopped by a page; leaving mid-round asks first, see main.js). Alt is
+      // sprint: alone it would send the keyboard to the browser's menu
+      if ((e.ctrlKey || e.altKey) && document.pointerLockElement === this.dom) e.preventDefault();
     });
-    addEventListener('keyup', (e) => { this.keys.delete(e.code); });
+    addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      if (e.key === 'Alt' && document.pointerLockElement === this.dom) e.preventDefault();
+    });
     addEventListener('mousedown', (e) => { this.keys.add(mouseCode(e.button)); });
     addEventListener('mouseup', (e) => { this.keys.delete(mouseCode(e.button)); });
     addEventListener('blur', () => this.keys.clear());
@@ -121,7 +125,9 @@ export class Player {
     if (input.lengthSq() > 1) input.normalize();
 
     const st = this.stats;
-    const wantSprint = pressed(k, 'sprint') && input.y > 0 && st.sprint && !crouched;
+    // walking quietly (if this character can): slow, and no footsteps
+    this.quiet = !!st.quiet && pressed(k, 'walk');
+    const wantSprint = pressed(k, 'sprint') && input.y > 0 && st.sprint && !crouched && !this.quiet;
     // out of breath: once the bar is empty, it has to refill to `recover` before sprinting again
     // (otherwise every sliver of regained stamina was spent at once, and the sprint never stopped)
     if (this.winded && this.stamina >= (st.recover ?? 0) * (st.stamina ?? 0)) this.winded = false;
@@ -133,7 +139,8 @@ export class Player {
       this.sprinting = false;
       if (st.stamina) this.stamina = Math.min(st.stamina, this.stamina + dt * st.staminaRegen * (input.lengthSq() ? 0.6 : 1));
     }
-    const speed = (this.sprinting ? st.sprint : st.walk * (input.y < 0 ? 0.75 : 1)) * THREE.MathUtils.lerp(1, CROUCH.speed, this.crouch);
+    const speed = (this.sprinting ? st.sprint : st.walk * (input.y < 0 ? 0.75 : 1)) * THREE.MathUtils.lerp(1, CROUCH.speed, this.crouch)
+      * (this.quiet ? QUIET.speed : 1);
 
     // world-space wish direction from yaw only
     const sin = Math.sin(this.yaw), cos = Math.cos(this.yaw);
@@ -173,7 +180,7 @@ export class Player {
     const moving = Math.hypot(this.vel.x, this.vel.z);
     const prev = this.bob;
     this.bob += dt * moving * (this.sprinting ? 2.1 : 2.3);
-    if (Math.floor(prev / Math.PI) !== Math.floor(this.bob / Math.PI) && moving > 0.5 && this.air === 0) this.onStep?.(moving);
+    if (Math.floor(prev / Math.PI) !== Math.floor(this.bob / Math.PI) && moving > 0.5 && this.air === 0 && !this.quiet) this.onStep?.(moving);
     // a very light bob only (Valorant keeps the camera steady)
     const amp = Math.min(1, moving / 3) * (this.sprinting ? 0.014 : 0.007);
 

@@ -72,7 +72,7 @@ function slides() {
   return [
     {
       role: 'Both', name: 'Moving', keys: [k('forward'), k('left'), k('back'), k('right'), k('sprint'), k('jump')],
-      text: `<b>${k('forward')} ${k('left')} ${k('back')} ${k('right')}</b> to move, the mouse to look. <b>${k('sprint')}</b> sprints (seeker only, until the stamina bar runs out). <b>${k('jump')}</b> jumps over rocks and logs. <b>Esc</b> pauses.`,
+      text: `<b>${k('forward')} ${k('left')} ${k('back')} ${k('right')}</b> to move, the mouse to look. <b>${k('sprint')}</b> sprints (seeker only, until the stamina bar runs out). <b>${k('walk')}</b> walks slowly without a sound (seeker only; both in the duel). <b>${k('crouch')}</b> crouches. <b>${k('jump')}</b> jumps over rocks and logs. <b>Esc</b> pauses.`,
       art: (() => {
         const d = 4, red = (a, b) => A('fill', a === 0 ? `${RED};${KEY}` : `${KEY};${RED};${KEY}`, a === 0 ? `0;${b}` : `0;${a};${b}`, d, 'discrete');
         return wrap(`

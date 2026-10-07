@@ -382,7 +382,7 @@ function leaveToMenu() {
 // the mouse (the pause menu) and leaves fullscreen; taking the mouse back goes fullscreen again.
 // Where there's no keyboard lock (Firefox, Safari), closing the tab mid-round asks first.
 const LOCKED_KEYS = [...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((c) => `Key${c}`)
-  .concat([...'0123456789'].map((d) => `Digit${d}`), ['Space', 'Tab', 'Enter']);
+  .concat([...'0123456789'].map((d) => `Digit${d}`), ['Space', 'Tab', 'Enter', 'AltLeft', 'AltRight', 'ShiftLeft', 'ControlLeft']);
 function holdKeys() {
   if (!navigator.keyboard?.lock || !document.documentElement.requestFullscreen) return;
   const lock = () => navigator.keyboard.lock(LOCKED_KEYS).catch(() => {});
@@ -638,7 +638,7 @@ function closeControls(force = false) {
 function renderKeyHints() {
   const move = ['forward', 'left', 'back', 'right'].map(label);
   const moveText = move.every((k) => k.length === 1) ? move.join('') : move.join(' ');
-  $('#footer-hint').innerHTML = [[moveText, 'move'], [label('sprint'), 'sprint'], [label('jump'), 'jump'], [label('crouch'), 'crouch'], [label('shoot'), 'shoot'], [label('reload'), 'reload'],
+  $('#footer-hint').innerHTML = [[moveText, 'move'], [label('sprint'), 'sprint'], [label('walk'), 'quiet walk'], [label('jump'), 'jump'], [label('crouch'), 'crouch'], [label('shoot'), 'shoot'], [label('reload'), 'reload'],
     [`${label('dart')} ${label('flash')} ${label('dash')}`, 'abilities'], [label('take'), 'take page'], [label('light'), 'light'], [label('inspect'), 'inspect']]
     .map(([k, what]) => `<span><b>${k}</b> ${what}</span>`).join('');
   for (const el of document.querySelectorAll('[data-kit]')) el.innerHTML = el.dataset.kit.split(' ').map((id) => `<i>${label(id)}</i>`).join('');

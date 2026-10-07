@@ -157,12 +157,20 @@ function swing(bone, rest, axis, angle) {
 // whose mouth is where the flashlight shines from.
 const ISO_SCALE = 0.85; // the model is 2.09 m tall; this makes him about 1.78 m
 
+// crouched (pose.crouch 1): the thighs swing forward and the knees fold back by these (radians),
+// and the whole body (gun and torch too) comes down by DROP metres, so his head ends up about
+// where CROUCH.height puts the hitbox
+const CROUCH_HIP = 1.45, CROUCH_KNEE = 2.3, CROUCH_DROP = 0.56;
+
 function isoSeeker() {
   const g = new THREE.Group();
+  // everything that comes down when he crouches (his feet stay put: the legs fold)
+  const rig = new THREE.Group();
+  g.add(rig);
   const iso = cloneIso();
   iso.children[0].position.set(0, 0, 0); // the file places him far from the origin
   iso.scale.setScalar(ISO_SCALE);
-  g.add(iso);
+  rig.add(iso);
   const bones = {};
   iso.traverse((o) => {
     if (o.isBone) bones[o.name] = o;
@@ -185,23 +193,26 @@ function isoSeeker() {
   gun.add(skin.group);
   gun.position.copy(hand).sub(new THREE.Vector3(0, -0.06, 0.045)); // put its grip in the hand
   gun.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  g.add(gun);
+  rig.add(gun);
   g.userData.skin = skin;
 
   const lensPos = gun.position.clone().add(skin.lens);
   const lens = new THREE.Mesh(new THREE.CircleGeometry(0.02, 16), new THREE.MeshBasicMaterial({ color: 0xffffff }));
   lens.position.copy(lensPos).add(new THREE.Vector3(0, 0, -0.01));
   lens.rotation.y = Math.PI;
-  g.add(lens);
+  rig.add(lens);
   g.userData.lens = lens;
   const glare = new THREE.Sprite(new THREE.SpriteMaterial({
     map: glareTexture(), color: 0xfff1dc, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, transparent: true, opacity: 0,
   }));
   glare.position.copy(lens.position);
   glare.scale.setScalar(1.6);
-  g.add(glare);
+  rig.add(glare);
   g.userData.glare = glare;
-  g.userData.torchOffset = lensPos.clone().add(new THREE.Vector3(0, 0, -0.03));
+  // where the torch shines from (it comes down with him when he crouches)
+  const torch = lensPos.clone().add(new THREE.Vector3(0, 0, -0.03));
+  g.userData.torchOffset = torch.clone();
+  g.userData.crouchPose = true; // (crouching bends him; other figures are just squashed)
 
   // walk cycle: legs and the free left arm swing; the gun arm stays put so the torch
   // (which shines from the gun) stays where the other screen expects it
@@ -209,19 +220,23 @@ function isoSeeker() {
   const rest = Object.fromEntries(limbs.map((n) => [n, bones[n].quaternion.clone()]));
   let phase = 0;
   g.userData.animate = (dt, speed, time, pose = {}) => {
-    const struggle = pose.struggle ?? 0, lift = pose.lift ?? 0;
-    const amt = THREE.MathUtils.smoothstep(speed, 0.2, 2.6) * (1 - lift), run = THREE.MathUtils.smoothstep(speed, 3.5, 5.2);
+    const struggle = pose.struggle ?? 0, lift = pose.lift ?? 0, crouch = (pose.crouch ?? 0) * (1 - lift);
+    // (a crouch-walk takes shorter steps)
+    const amt = THREE.MathUtils.smoothstep(speed, 0.2, 2.6) * (1 - lift) * (1 - 0.6 * crouch), run = THREE.MathUtils.smoothstep(speed, 3.5, 5.2);
     phase += dt * speed * 2.6;
     const sin = Math.sin(phase), cos = Math.cos(phase);
     const hipA = (0.4 + run * 0.2) * amt;
     _side.set(1, 0, 0).applyQuaternion(g.getWorldQuaternion(new THREE.Quaternion())); // his left-right axis
     // + turns a leg forward; the knee bends back while that leg swings through
-    // held up: the legs kick and dangle
+    // held up: the legs kick and dangle. Crouched: thighs forward, knees folded
     const kick = Math.sin(time * 9) * 0.3 * Math.max(lift, struggle * 0.5);
-    swing(bones.L_Hip, rest.L_Hip, _side, sin * hipA + kick);
-    swing(bones.R_Hip, rest.R_Hip, _side, -sin * hipA - kick);
-    swing(bones.L_Knee, rest.L_Knee, _side, -(Math.max(0, cos) * (0.85 + run * 0.4) + 0.06) * amt);
-    swing(bones.R_Knee, rest.R_Knee, _side, -(Math.max(0, -cos) * (0.85 + run * 0.4) + 0.06) * amt);
+    const hipC = CROUCH_HIP * crouch, kneeC = CROUCH_KNEE * crouch;
+    swing(bones.L_Hip, rest.L_Hip, _side, sin * hipA + kick + hipC);
+    swing(bones.R_Hip, rest.R_Hip, _side, -sin * hipA - kick + hipC);
+    swing(bones.L_Knee, rest.L_Knee, _side, -(Math.max(0, cos) * (0.85 + run * 0.4) + 0.06) * amt - kneeC);
+    swing(bones.R_Knee, rest.R_Knee, _side, -(Math.max(0, -cos) * (0.85 + run * 0.4) + 0.06) * amt - kneeC);
+    rig.position.y = -CROUCH_DROP * crouch;
+    g.userData.torchOffset.y = torch.y + rig.position.y;
     // the free arm swings while walking, and flails while he struggles
     swing(bones.L_Shoulder, rest.L_Shoulder, _side, -sin * 0.35 * amt + Math.sin(time * 1.6) * 0.03 * (1 - amt)
       + (Math.sin(time * 11) * 0.6 + 0.5) * Math.max(struggle, lift));

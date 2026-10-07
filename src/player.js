@@ -71,6 +71,7 @@ export class Player {
     this.air = 0;
     this.vy = 0;
     this.crouch = 0;
+    this.lastGround = undefined;
     this.yaw = lookAt ? Math.atan2(-(lookAt.x - pos.x), -(lookAt.z - pos.z)) : 0;
     this.pitch = 0;
     this.eyeY = this.world.heightAt(pos.x, pos.z) + stats.eye;
@@ -145,14 +146,22 @@ export class Player {
       if (this.dashT <= 0) this.vel.multiplyScalar(0.4); // carry a little momentum out of it
     }
 
-    // move in small steps so a fast dash can't skip through a thin trunk
+    // move in small steps so a fast dash can't skip through a thin trunk. Only what's higher than
+    // my feet stops me: in the air (a jump clears low things), or anywhere in a world with ledges
+    // (standing on a box, the box itself is below my feet)
+    const ledges = !!this.world.ledges;
+    const feet = ledges ? this.pos.y + 0.01 : this.air > 0 ? this.pos.y : -Infinity;
     const steps = Math.max(1, Math.ceil((Math.hypot(this.vel.x, this.vel.z) * dt) / 0.25));
     for (let i = 0; i < steps; i++) {
       this.pos.x += (this.vel.x * dt) / steps;
       this.pos.z += (this.vel.z * dt) / steps;
-      this.world.colliders.resolve(this.pos, 0.35, this.air > 0 ? this.pos.y : -Infinity);
+      this.world.colliders.resolve(this.pos, 0.35, feet);
     }
-    const ground = this.world.heightAt(this.pos.x, this.pos.z);
+    const ground = this.world.heightAt(this.pos.x, this.pos.z, this.pos.y + 0.05);
+    // ledges (the duel's boxes): when the ground under me changes, my feet stay where they are, so
+    // walking off a box I fall, and coming down over one I land on it
+    if (ledges && this.lastGround !== undefined && ground !== this.lastGround) this.air = Math.max(0, this.pos.y - ground);
+    this.lastGround = ground;
     if (this.vy || this.air > 0) {
       this.vy -= GRAVITY * dt;
       this.air += this.vy * dt;

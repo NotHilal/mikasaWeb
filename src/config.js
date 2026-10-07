@@ -99,7 +99,9 @@ export const DUEL = {
   introMs: 5000,     // the countdown before the first round
   betweenMs: 5000,   // the recap and countdown between rounds
   endMs: 2500,       // after the deciding round, before the result screen
-  move: { walk: 5, jump: 5.2 }, // the same for both
+  // the same for both. The jump (take-off speed, m/s) is much higher than in the woods: about 1.8 m,
+  // so both can get up on the arena's 1.6 m blocks (not the taller pillars)
+  move: { walk: 5, jump: 8 },
   hitbox: {
     seeker: { head: [1.64, 0.14], body: [0.95, 1.52, 0.25], legs: [0.05, 0.95, 0.2] },
     hunter: { head: [GUN.headCenter, GUN.headRadius], body: [1.3, GUN.bodyTop, GUN.bodyRadius], legs: [0.1, 1.3, 0.28] },
@@ -115,9 +117,10 @@ export const DART = { speed: 30, gravity: 6, radius: 30, pulses: 3, pulseGap: 2.
 // (on the seeker's screen only; the hunter is told a page was revealed, not where).
 export const PAGE_HINT = { afterMs: 240000, revealMs: 5000 };
 // And once the round has run `afterMs` (12 minutes), the seeker's minimap circles every page still
-// missing: `radius` metres round, the page somewhere inside but not at the middle (up to `offset`
-// of the radius away from it). A circle goes once its page is taken. The hunter doesn't see them.
-export const PAGE_ZONES = { afterMs: 12 * 60000, radius: 20, offset: 0.6 };
+// missing: 2 × `radius` metres across (40 m), the page anywhere inside it, any spot as likely as
+// any other (up to `offset` of the radius from the middle: 0.95, so not right on the line). A circle
+// goes once its page is taken. The hunter doesn't see them.
+export const PAGE_ZONES = { afterMs: 12 * 60000, radius: 20, offset: 0.95 };
 export const FLASH = { speed: 15, gravity: 7, fuse: 0.55, range: 30, closeRange: 4, nearPop: 2.5, fullMs: 2200, partialMs: 700, cooldown: 20 };
 export const DASH = { distance: 7, time: 0.2, cooldown: 12 };
 

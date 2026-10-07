@@ -27,7 +27,8 @@ const RESPAWN_MS = 1500; // into the recap, both go back to their ends of the ar
 
 // --- the arena -----------------------------------------------------------------------------
 // A regular hexagon: flat sides facing the two spawns (at +z and -z), DUEL.arena.apothem from the
-// centre to each side. Cover: [x, z, width, depth, height].
+// centre to each side. Cover: [x, z, width, depth, height]. The 1.6 m ones can be jumped onto
+// (DUEL.move.jump), the taller ones can't.
 const COVER = [
   [0, 0, 1.6, 1.6, 2.8],                                                  // the middle
   [-6.4, 11, 2.4, 1, 1.6], [6.4, -11, 2.4, 1, 1.6],                       // in front of each spawn, to one side
@@ -197,10 +198,24 @@ function buildArena() {
     blocked(a, b) { return this.hit(a, b) !== null; },
   };
 
+  // the ground under (x, z): the floor, or the top of a box you're over that isn't above `below`
+  // (your feet), so you can jump up onto the low ones and stand there. A little past a box's edge
+  // still counts (you're not off it until your middle is), like a ledge.
+  const LEDGE = 0.15;
+  const heightAt = (x, z, below = Infinity) => {
+    let top = Y;
+    for (const b of boxes) {
+      if (b.max.y > below || b.max.y <= top) continue;
+      if (x >= b.min.x - LEDGE && x <= b.max.x + LEDGE && z >= b.min.z - LEDGE && z <= b.max.z + LEDGE) top = b.max.y;
+    }
+    return top;
+  };
+
   const spawn = (role) => new THREE.Vector3(0, Y, (role === 'seeker' ? 1 : -1) * (A - 2.5));
   return {
     group,
-    world: { heightAt: () => Y, colliders },
+    // ledges: the ground can step up and down (box tops), see Player.update
+    world: { heightAt, colliders, ledges: true },
     spawn,
     update(time) { wallMat.uniforms.uTime.value = time; },
     dispose() { geos.forEach((g) => g.dispose()); mats.forEach((m) => m.dispose()); lines.dispose(); },
@@ -600,11 +615,11 @@ export class Duel {
     if (rs) {
       r.position.set(rs.x, rs.y, rs.z);
       r.rotation.y = rs.yaw;
-      r.scale.y = crouchK(rs.cr); // crouching
+      r.scale.y = r.userData.crouchPose ? 1 : crouchK(rs.cr); // crouching: bent (Iso), or squashed
       const moved = this.lastRemote ? Math.hypot(rs.x - this.lastRemote.x, rs.z - this.lastRemote.z) / Math.max(dt, 1e-3) : 0;
       this.lastRemote = { x: rs.x, z: rs.z };
       this.remoteSpeed = (this.remoteSpeed ?? 0) + ((moved > 15 ? 0 : moved) - (this.remoteSpeed ?? 0)) * Math.min(1, dt * 8);
-      r.userData.animate?.(dt, this.remoteDeadAt ? 0 : this.remoteSpeed, time, {});
+      r.userData.animate?.(dt, this.remoteDeadAt ? 0 : this.remoteSpeed, time, { crouch: rs.cr ?? 0 });
       r.rotation.x = this.remoteDeadAt ? THREE.MathUtils.smoothstep(t - this.remoteDeadAt, 0, 450) * Math.PI * 0.48 : 0;
       r.userData.skin?.update(time);
     }

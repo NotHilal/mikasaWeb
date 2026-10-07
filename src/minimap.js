@@ -4,12 +4,14 @@
 // to find are: that would spoil the hunt (late in a round, the seeker gets a rough circle round
 // each, PAGE_ZONES).
 import { MAP } from './config.js';
-// (scan colours: the dart's teal, the eye's purple)
-export const SCAN_COLOR = { dart: '63, 224, 197', eye: '176, 77, 255' };
+// (scan colours: the dart's teal, the eye's pink, like their scans in the woods)
+export const SCAN_COLOR = { dart: '63, 224, 197', eye: '255, 64, 140' };
 
 const SIZE = 168; // css px
-export const SCAN_SHOW = 6; // seconds a scanned zone stays on the map (fading out)
+export const SCAN_SHOW = 8; // seconds a scanned zone stays on the map...
+const SCAN_HOLD = 5;        // ...at full strength for this long, then fading out
 const SCAN_GROW = 0.6;      // seconds its ring takes to spread out to the full zone
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
 
 export function createMinimap(canvas, world) {
   const dpr = Math.min(2, devicePixelRatio || 1);
@@ -63,13 +65,13 @@ export function createMinimap(canvas, world) {
       g.beginPath(); g.arc(SIZE / 2, SIZE / 2, MAP.play * k + 2, 0, Math.PI * 2); g.clip(); // (inside the map)
       for (const s of scans) {
         const age = Math.max(0, s.age); // (a scan from this very frame can be a hair in the future)
-        const fade = 1 - Math.min(1, age / SCAN_SHOW), grow = Math.min(1, age / SCAN_GROW);
+        const fade = 1 - clamp01((age - SCAN_HOLD) / (SCAN_SHOW - SCAN_HOLD)), grow = Math.min(1, age / SCAN_GROW);
         if (fade <= 0) continue;
         const r = s.r * k * (1 - (1 - grow) ** 3);
-        g.fillStyle = `rgba(${s.color}, ${0.16 * fade})`;
+        g.fillStyle = `rgba(${s.color}, ${0.24 * fade})`;
         g.beginPath(); g.arc(px(s.x), pz(s.z), r, 0, Math.PI * 2); g.fill();
-        g.strokeStyle = `rgba(${s.color}, ${0.85 * fade})`;
-        g.lineWidth = grow < 1 ? 2 : 1.2;
+        g.strokeStyle = `rgba(${s.color}, ${fade})`;
+        g.lineWidth = grow < 1 ? 2.4 : 1.6;
         g.stroke();
         g.fillStyle = `rgba(${s.color}, ${fade})`;
         g.beginPath(); g.arc(px(s.x), pz(s.z), 1.6, 0, Math.PI * 2); g.fill();

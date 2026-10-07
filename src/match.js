@@ -100,7 +100,7 @@ export class Match {
     // one in progress: { n, kill, start, until, need, drain, progress } (times in ms)
     this.grabs = 0;
     this.grab = null;
-    this.pose = { grab: 0, struggle: 0, lift: 0, scare: 0 }; // the other player's figure, smoothed
+    this.pose = { grab: 0, struggle: 0, lift: 0, scare: 0, crouch: 0 }; // the other player's figure, smoothed
     this.scare = null; // the jumpscare, each time the seeker is grabbed: { start, until, light }
     if (role === 'seeker') audio.preload(SCARE.sound);
     this.aiming = false;
@@ -453,7 +453,7 @@ export class Match {
   }
 
   // seeker, once the round has run PAGE_ZONES.afterMs: each missing page gets a circle on the
-  // minimap, with the page somewhere inside it (not at the middle)
+  // minimap, with the page anywhere inside it (√random: every spot of the circle as likely)
   showPageZones() {
     this.zonesShown = true;
     const r = PAGE_ZONES.radius;
@@ -1051,15 +1051,15 @@ export class Match {
       r.visible = true;
       r.position.set(rs.x, rs.y, rs.z);
       r.rotation.y = rs.yaw;
-      r.scale.y = crouchK(rs.cr); // crouching
+      r.scale.y = r.userData.crouchPose ? 1 : crouchK(rs.cr); // crouching: bent (Iso), or squashed
       // walk cycle, at the speed they're really moving (a teleport's jump doesn't count)
       const moved = this.lastRemote ? Math.hypot(rs.x - this.lastRemote.x, rs.z - this.lastRemote.z) / Math.max(dt, 1e-3) : 0;
       this.lastRemote = { x: rs.x, z: rs.z };
       this.remoteSpeed = (this.remoteSpeed ?? 0) + ((moved > 15 ? 0 : moved) - (this.remoteSpeed ?? 0)) * Math.min(1, dt * 8);
       // grab poses: on my screen he reaches for me, or (hunter) they struggle / are lifted
       const g = this.grab;
-      const want = this.role === 'seeker' ? { grab: g ? 1 : 0, struggle: 0, lift: 0, scare: this.scare ? 1 : 0 }
-        : { grab: 0, struggle: g && !g.kill ? 1 : 0, lift: g?.kill ? THREE.MathUtils.smoothstep(t - g.start, 0, GRAB.killMs * 0.6) : 0, scare: 0 };
+      const want = this.role === 'seeker' ? { grab: g ? 1 : 0, struggle: 0, lift: 0, scare: this.scare ? 1 : 0, crouch: rs.cr }
+        : { grab: 0, struggle: g && !g.kill ? 1 : 0, lift: g?.kill ? THREE.MathUtils.smoothstep(t - g.start, 0, GRAB.killMs * 0.6) : 0, scare: 0, crouch: rs.cr };
       for (const k in this.pose) this.pose[k] += (want[k] - this.pose[k]) * Math.min(1, dt * (k === 'scare' ? 14 : 10));
       // the jumpscare: he turns to face me
       if (this.scare) r.rotation.y = Math.atan2(-(this.player.pos.x - rs.x), -(this.player.pos.z - rs.z));

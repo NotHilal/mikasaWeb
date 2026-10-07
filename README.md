@@ -83,9 +83,36 @@ If a player loses their connection, the round pauses for both until they're back
 then carries on where it was. If a player reloads the page, both go back to the lobby (the host
 keeps the room). Walking is blocked while the pause menu is open.
 
+## Level 2: Split
+
+When the seeker finds every page in the forest, the vote after the round is for **Level 2**: the
+same game on Split, at night (the forest is level 1). Find every page there too, and the vote is
+for the final duel. Caught on either map: back to the lobby.
+
+Split is built in code (`src/world/split/`): the layout follows the real map's callouts and flow
+(attacker and defender spawns, A lobby, A main, A ramps, A site, A heaven, A screens; mail, mid
+bottom, mid top, the sewer and the vent; the B side the same), with distances worked from the
+game's minimap, so close but not exact (`plan.js`). It's dressed as a Japanese city at night:
+scanned textures and props from Poly Haven (paving, asphalt, plaster, cedar and hinoki wood, roof
+tiles, shutters, air-con units, crates, bins...; `npm run assets` fetches them), and lit windows,
+shop fronts, signs, neon, shoji screens, vending machines and paper lanterns drawn in code. Lamps
+on utility poles with their cables light the streets in pools; the rest takes the flashlight.
+
+- The upper level (the heavens, mid top, the screens walkways, defender spawn) is up stairs, or up
+  the ropes: face the ledge and hold forward (or jump). You can drop off its edge where there's no
+  railing; the seeker can hop the railings, the hunter can't.
+- The vent (from mail towards B lobby) is too low for the hunter.
+- Pages go on walls beside the streets, spread apart; the seeker starts in attacker spawn, the
+  hunter in defender spawn.
+
+The whole map is a grid of 25 cm cells, each with a floor height and (indoors) a ceiling
+(`grid.js`): walking, stairs, falling, ceilings, shots, scans and teleports all ask it. The
+buildings, walls, roofs and facades are generated from the same plan (`build.js`), merged by
+material, so what blocks you is what you see.
+
 ## The final duel and the gift
 
-When the seeker finds every page, the vote after the round is for the **Final duel** instead of the
+When the seeker has found every page on both maps, the vote after the round is for the **Final duel** instead of the
 lobby. Iso's ultimate pulls both players into a hexagonal arena of purple energy walls (48 m across, with cover),
 high above the forest. Best of 5 (first to 3), both with the Classic and each keeping their character:
 150 health; up to 30 m a headshot does 78, the body 26, the legs 22, and further away 66, 22 and 18.
@@ -143,7 +170,9 @@ The role cards in the lobby show 3D renders of both characters (`src/portraits.j
 - `src/howto.js` – the How to play slides and their animations
 - `src/engine.js` – renderer, lights, post-processing, dynamic resolution, graphics preset
 - `src/world/` – forest generation: `terrain`, `trees` (procedural pines), `props` (ferns,
-  rocks, stump, grass), `sky`, `world` (layout, collisions, page spots)
+  rocks, stump, grass), `sky`, `world` (layout, collisions, page spots); `pages` (the pages, on any map)
+- `src/world/split/` – level 2: `plan` (the layout), `grid` (collisions), `build` (the city), `look`
+  (materials, signs and windows drawn in code), `index` (the map's answers to the game)
 - `src/player.js` – first-person controller (also dash and stun freeze)
 - `src/keys.js` – key bindings (remappable, saved with the settings)
 - `src/viewmodel.js` – the seeker's first-person pistol (the flashlight shines from its mouth), inspect
@@ -172,7 +201,12 @@ With `npm run dev` running:
 node tools/duo.mjs   # create → join → start → jump → page → dread → pistol stun → flash → dart → teleport → eye
                      # → grab, escape ×2 → grab 3 caught → recap → lobby → round 2: no struggling, caught
 node tools/drop.mjs  # network blip pauses and resumes the round → closed tab → rejoin → host reload
-node tools/final.mjs # how to play → immunity → every page → final duel (damage, rounds, recap, 1-3) → try again
-                     # → 3-0 → continue → puzzle → message
+node tools/final.mjs # how to play → immunity → every page → level 2 on Split → every page → final duel
+                     # (damage, rounds, recap, 1-3) → try again → 3-0 → continue → puzzle → message
+node tools/split.mjs # Split alone: walls, the mid stairs, a ledge, a rope, the vent, pages, shots, speed
 node tools/shot.mjs http://localhost:5180/ shots/menu.png
 ```
+
+Dev shortcuts (`npm run dev` only, never in a build): **F3** shows the pages still to find on the
+minimap, **F6** jumps into the final duel, **F7** into level 2 (Split). In a room, F6 and F7 take
+both players.

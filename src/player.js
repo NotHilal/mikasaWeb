@@ -1,10 +1,13 @@
 // First-person controller: mouse look (pointer lock), WASD, sprint with stamina,
-// head bob, ground following and collision against the forest.
+// head bob, ground following and collision against the map: stepping up stairs, falling off
+// ledges, ceilings, and climbing ropes (on maps that have them).
 import * as THREE from 'three';
 import { settings } from './settings.js';
 import { pressed, mouseCode } from './keys.js';
 
 const GRAVITY = 18; // m/s², a bit more than real: snappy, game-like jumps
+const DROP = 0.5;   // stepping down more than this (off a ledge) is a fall, not a step
+const CLIMB = 3.2;  // m/s up a rope
 
 export class Player {
   constructor(camera, world, dom) {
@@ -62,8 +65,13 @@ export class Player {
     this.vy = 0;
     this.yaw = lookAt ? Math.atan2(-(lookAt.x - pos.x), -(lookAt.z - pos.z)) : 0;
     this.pitch = 0;
-    this.eyeY = this.world.heightAt(pos.x, pos.z) + stats.eye;
+    this.eyeY = this.world.heightAt(pos.x, pos.z, pos.y + 0.5) + stats.eye;
+    this.pos.y = this.eyeY - stats.eye;
+    this.climbing = false;
   }
+
+  // how tall the body is (the hunter's 2.6 m doesn't fit where the seeker's 1.85 m does)
+  get height() { return this.stats.eye + 0.2; }
 
   get forward() {
     return new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
@@ -125,19 +133,39 @@ export class Player {
       if (this.dashT <= 0) this.vel.multiplyScalar(0.4); // carry a little momentum out of it
     }
 
+    // a rope: facing the ledge it goes up to, hold forward (or jump) to climb it; at the top, step
+    // off onto the ledge (walking away from it, or past it, doesn't climb)
+    const rope = canMove ? this.world.ropeAt?.(this.pos) : null;
+    const facing = rope ? -Math.sin(this.yaw) * rope.out[0] - Math.cos(this.yaw) * rope.out[1] : 0;
+    this.climbing = !!rope && (pressed(k, 'jump') || (pressed(k, 'forward') && facing > 0.3));
+    if (this.climbing) { this.vel.set(0, 0, 0); this.vy = 0; }
+
     // move in small steps so a fast dash can't skip through a thin trunk
+    const standing = this.pos.y - this.air; // the floor I was on
     const steps = Math.max(1, Math.ceil((Math.hypot(this.vel.x, this.vel.z) * dt) / 0.25));
     for (let i = 0; i < steps; i++) {
       this.pos.x += (this.vel.x * dt) / steps;
       this.pos.z += (this.vel.z * dt) / steps;
-      this.world.colliders.resolve(this.pos, 0.35, this.air > 0 ? this.pos.y : -Infinity);
+      this.world.colliders.resolve(this.pos, 0.35, this.air > 0 ? this.pos.y : -Infinity, standing, this.height);
     }
-    const ground = this.world.heightAt(this.pos.x, this.pos.z);
-    if (this.vy || this.air > 0) {
+    const ground = this.world.heightAt(this.pos.x, this.pos.z, this.pos.y + 0.05);
+    // the floor changed under me in the air, or I walked off a ledge: keep my height and fall from
+    // there (the camera stays put: its smoothing only takes the steps you walk up and down)
+    if (ground !== standing && (this.air > 0 || this.vy || this.pos.y - ground > DROP)) {
+      this.air = Math.max(0, this.pos.y - ground);
+      this.eyeY += ground - standing;
+    }
+    if (this.climbing) {
+      this.air = Math.min(rope.top + 0.15 - ground, this.air + CLIMB * dt);
+      if (ground + this.air >= rope.top) { this.pos.x += rope.out[0] * 0.9; this.pos.z += rope.out[1] * 0.9; }
+    } else if (this.vy || this.air > 0) {
       this.vy -= GRAVITY * dt;
       this.air += this.vy * dt;
       if (this.air <= 0) { this.air = 0; this.vy = 0; this.onStep?.(4.5); } // landed: a heavier step
     }
+    // a ceiling: the head stops there
+    const ceiling = this.world.ceilAt?.(this.pos.x, this.pos.z) ?? Infinity;
+    if (ground + this.air + this.height > ceiling) { this.air = Math.max(0, ceiling - this.height - ground); this.vy = Math.min(0, this.vy); }
     this.pos.y = ground + this.air;
 
     // head bob + footsteps

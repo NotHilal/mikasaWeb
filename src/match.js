@@ -9,7 +9,7 @@ import { $, flash, hud, toast } from './ui.js';
 import { settings } from './settings.js';
 import { createMinimap } from './minimap.js';
 import { actionFor, key, label, mouseCode } from './keys.js';
-import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT } from './config.js';
+import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT } from './config.js';
 
 const INTERP_MS = 110; // the other player is drawn this far in the past, to smooth over network jitter
 const v3 = (a) => new THREE.Vector3().fromArray(a);
@@ -344,7 +344,7 @@ export class Match {
     // ground along the way
     for (let d = 1; d < endDist; d += 0.5) {
       const p = origin.clone().addScaledVector(dir, d);
-      if (p.y < this.world.heightAt(p.x, p.z)) { endDist = d; break; }
+      if (p.y < this.world.heightAt(p.x, p.z, p.y)) { endDist = d; break; }
     }
     // did it hit the hunter where I see him? His head is a sphere, his body a cylinder below it.
     const rs = this.remoteState();
@@ -548,16 +548,16 @@ export class Match {
     let pt = null;
     for (let d = 1; d <= TELEPORT.range; d += 0.4) {
       const p = cam.position.clone().addScaledVector(f, d);
-      if (p.y <= this.world.heightAt(p.x, p.z)) { pt = p; break; }
+      if (p.y <= this.world.heightAt(p.x, p.z, p.y)) { pt = p; break; }
     }
     if (!pt) {
       // looking up: take the spot straight below the end of the range
       pt = cam.position.clone().addScaledVector(new THREE.Vector3(f.x, 0, f.z).normalize(), TELEPORT.range * Math.max(0.2, Math.hypot(f.x, f.z)));
     }
-    const len = Math.hypot(pt.x, pt.z), lim = MAP.play - 1;
-    if (len > lim) { pt.x *= lim / len; pt.z *= lim / len; }
-    this.world.colliders.resolve(pt, 0.5);
-    pt.y = this.world.heightAt(pt.x, pt.z);
+    this.world.clamp(pt, 1);
+    // a free spot about where it landed, with room for him (standing at that height)
+    this.world.colliders.resolve(pt, 0.5, -Infinity, pt.y, HUNTER.eye + 0.2);
+    pt.y = this.world.heightAt(pt.x, pt.z, pt.y + 0.5);
     return pt;
   }
 
@@ -1105,7 +1105,7 @@ export class Match {
     removeEventListener('mouseup', this.onMouseUp);
     removeEventListener('contextmenu', this.onContext);
     for (const p of this.pages) {
-      this.engine.scene.remove(p.mesh);
+      p.mesh.removeFromParent();
       p.mesh.material.map.dispose();
       p.mesh.material.dispose();
       p.glow?.children.forEach((o) => o.material.dispose());

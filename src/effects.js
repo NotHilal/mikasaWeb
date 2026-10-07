@@ -167,7 +167,7 @@ export class Effects {
     p.pos.addScaledVector(p.vel, dt);
     const t = this.world.colliders.hit(prev, p.pos);
     if (t !== null) { p.pos.lerpVectors(prev, p.pos, Math.max(0, t - 0.02)); return 'tree'; }
-    const g = this.world.heightAt(p.pos.x, p.pos.z);
+    const g = this.world.heightAt(p.pos.x, p.pos.z, prev.y);
     if (p.pos.y < g + 0.05) { p.pos.y = g + 0.05; return 'ground'; }
     return null;
   }
@@ -377,7 +377,7 @@ export class Effects {
   tpWindup(pos, dur) {
     const center = pos.clone();
     const ring = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(0x9b3dff).multiplyScalar(1.6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    ring.position.set(pos.x, this.world.heightAt(pos.x, pos.z) + 0.08, pos.z);
+    ring.position.set(pos.x, this.world.heightAt(pos.x, pos.z, pos.y + 0.5) + 0.08, pos.z);
     this.add(ring, {
       tick(dt, it) {
         const k = it.age / dur;
@@ -430,7 +430,7 @@ export class Effects {
   // a flat ring racing outwards over the ground
   groundRing(pos, color, radius, dur) {
     const m = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.6), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-    m.position.set(pos.x, this.world.heightAt(pos.x, pos.z) + 0.08, pos.z);
+    m.position.set(pos.x, this.world.heightAt(pos.x, pos.z, pos.y + 0.5) + 0.08, pos.z);
     this.add(m, {
       tick(dt, it) {
         const k = it.age / dur;

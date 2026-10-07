@@ -1,7 +1,6 @@
-// The minimap, top left of the HUD: the woods from above, north up. Trees, landmarks, the edge of
-// the play area, the pages already taken, and you (an arrow pointing where you look). Never the
+// The minimap, top left of the HUD: the map from above, north up (the map draws itself: see
+// world.map), the pages already taken, and you (an arrow pointing where you look). Never the
 // other player, and never the pages still to find: that would spoil the hunt.
-import { MAP } from './config.js';
 
 const SIZE = 168; // css px
 
@@ -10,7 +9,7 @@ export function createMinimap(canvas, world) {
   canvas.width = canvas.height = Math.round(SIZE * dpr);
   const g = canvas.getContext('2d');
   // world x → right, world z → down; the whole play area fits, with a little margin
-  const R = MAP.play + 3, k = SIZE / (2 * R);
+  const R = world.map.R + 3, k = SIZE / (2 * R);
   const px = (x) => (x + R) * k, pz = (z) => (z + R) * k;
 
   // the part that never changes, drawn once
@@ -18,19 +17,7 @@ export function createMinimap(canvas, world) {
   bg.width = bg.height = canvas.width;
   const b = bg.getContext('2d');
   b.scale(dpr, dpr);
-  b.fillStyle = 'rgba(8, 14, 20, 0.78)';
-  b.beginPath(); b.arc(SIZE / 2, SIZE / 2, MAP.play * k + 2, 0, Math.PI * 2); b.fill();
-  b.fillStyle = 'rgba(236, 232, 225, 0.11)';
-  for (const t of world.trees) {
-    if (Math.hypot(t.x, t.z) > MAP.play) continue;
-    b.fillRect(px(t.x) - 0.6, pz(t.z) - 0.6, 1.2, 1.2);
-  }
-  b.fillStyle = 'rgba(236, 232, 225, 0.32)';
-  for (const l of world.landmarks) b.fillRect(px(l.x) - 2.5, pz(l.z) - 2.5, 5, 5);
-  // the edge, where the fence is
-  b.strokeStyle = 'rgba(255, 70, 85, 0.65)';
-  b.lineWidth = 1.5;
-  b.beginPath(); b.arc(SIZE / 2, SIZE / 2, MAP.play * k, 0, Math.PI * 2); b.stroke();
+  world.map.draw(b, px, pz, k);
 
   return {
     // you: { x, z, yaw }; taken: [{ x, z }]; left (dev only, F3): the pages still to find, [{ x, z, n }]

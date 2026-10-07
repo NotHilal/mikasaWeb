@@ -1,5 +1,7 @@
 // Builds the forest (same layout on every client, from MAP.seed) and answers
-// "how high is the ground here" and "am I walking into something".
+// "how high is the ground here" and "am I walking into something". The game asks every map the
+// same things (Split answers them too, see split/): heightAt, colliders, clamp, map, pickPages,
+// placePages, spawnPoint, update.
 import * as THREE from 'three';
 import { rng, simplex2 } from './noise.js';
 import { makeHeight, buildTerrain } from './terrain.js';
@@ -8,6 +10,7 @@ import { loadProps } from './props.js';
 import { buildLandmarks } from './landmarks.js';
 import { Chunked, makeMatrix } from './instancing.js';
 import { MAP, PAGES, PAGE_SPOTS } from '../config.js';
+import { placePages } from './pages.js';
 import { quality } from '../engine.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -89,30 +92,6 @@ function fallenLog(seed, barkMat) {
   for (let i = 0; i <= 10; i++) spine.push(new THREE.Vector3((i / 10 - 0.5) * L, Math.sin(i * 0.7) * 0.04, Math.sin(i * 0.5) * 0.08));
   const g = tube(spine, (t, a) => R * (1 - t * 0.35) * (1 + Math.sin(a * 5 + t * 9) * 0.05) * (t < 0.03 || t > 0.97 ? 0.75 : 1), 12, 3, 1.6);
   return { geometry: g, material: barkMat, length: L, radius: R };
-}
-
-function pageTexture(n) {
-  const cv = document.createElement('canvas');
-  cv.width = 256; cv.height = 360;
-  const g = cv.getContext('2d');
-  g.fillStyle = '#d9d4c5';
-  g.fillRect(0, 0, 256, 360);
-  // grime and creases
-  const r = rng(n * 31 + 5);
-  for (let i = 0; i < 400; i++) {
-    g.fillStyle = `rgba(70,55,35,${r() * 0.06})`;
-    g.fillRect(r() * 256, r() * 360, r() * 30, r() * 30);
-  }
-  g.strokeStyle = 'rgba(80,70,50,0.25)';
-  g.beginPath(); g.moveTo(0, 170 + r() * 30); g.lineTo(256, 160 + r() * 30); g.stroke();
-  g.fillStyle = '#1b1b1b';
-  g.font = '64px "Caveat", cursive';
-  g.textAlign = 'center';
-  g.fillText(`${n} / ${PAGES}`, 128, 200);
-  const t = new THREE.CanvasTexture(cv);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
 }
 
 export async function buildWorld(scene, manager) {
@@ -270,14 +249,42 @@ export async function buildWorld(scene, manager) {
     scene.add(posts, rags, rope);
   }
 
-  // --- pages
-  const pageGeo = new THREE.PlaneGeometry(0.21, 0.29);
-
   return {
-    heightAt: height.heightAt,
+    name: 'forest',
+    heightAt: height.heightAt, // (x, z): the forest has one ground, so the height asked from doesn't matter
     colliders,
     trees,
     landmarks: sites,
+    // keep a point inside the play area (the fence), `margin` metres in
+    clamp(p, margin = 1) {
+      const len = Math.hypot(p.x, p.z), lim = MAP.play - margin;
+      if (len > lim) { p.x *= lim / len; p.z *= lim / len; }
+      return p;
+    },
+    // the map from above, for the minimap and the recap: R is how far it reaches from the centre;
+    // draw(g, px, pz, k) draws it (px, pz turn world x, z into the canvas, k is pixels per metre)
+    map: {
+      R: MAP.play,
+      draw(g, px, pz, k, big = false) {
+        g.fillStyle = big ? 'rgba(8, 14, 20, 0.85)' : 'rgba(8, 14, 20, 0.78)';
+        g.beginPath(); g.arc(px(0), pz(0), MAP.play * k + (big ? 0 : 2), 0, Math.PI * 2); g.fill();
+        if (big) { g.strokeStyle = 'rgba(236, 232, 225, 0.18)'; g.lineWidth = 1; g.stroke(); }
+        g.fillStyle = big ? 'rgba(236, 232, 225, 0.09)' : 'rgba(236, 232, 225, 0.11)';
+        for (const t of trees) {
+          if (Math.hypot(t.x, t.z) > MAP.play) continue;
+          if (big) { g.beginPath(); g.arc(px(t.x), pz(t.z), Math.max(0.8, t.r * k * 1.6), 0, Math.PI * 2); g.fill(); } else g.fillRect(px(t.x) - 0.6, pz(t.z) - 0.6, 1.2, 1.2);
+        }
+        g.fillStyle = big ? 'rgba(236, 232, 225, 0.2)' : 'rgba(236, 232, 225, 0.32)';
+        const s = big ? 6 : 5;
+        for (const l of sites) g.fillRect(px(l.x) - s / 2, pz(l.z) - s / 2, s, s);
+        if (!big) {
+          // the edge, where the fence is
+          g.strokeStyle = 'rgba(255, 70, 85, 0.65)';
+          g.lineWidth = 1.5;
+          g.beginPath(); g.arc(px(0), pz(0), MAP.play * k, 0, Math.PI * 2); g.stroke();
+        }
+      },
+    },
     update(dt, camPos, time) {
       props.grass.uTime.value = time;
       for (const u of updaters) u.update(camPos);
@@ -325,23 +332,7 @@ export async function buildWorld(scene, manager) {
     },
 
     // pin page meshes where pickPages chose; returns [{ mesh, pos, n }]
-    placePages(chosen) {
-      return chosen.map(({ pos, face, n }) => {
-        // the paper glows just enough to make out a pale shape in the dark close by, but it takes
-        // the flashlight to really see it (PAGE_GLOW)
-        const map = pageTexture(n);
-        const mesh = new THREE.Mesh(pageGeo, new THREE.MeshStandardMaterial({
-          map, color: 0xb0b0b0, roughness: 0.9, side: THREE.DoubleSide,
-          emissive: 0xffffff, emissiveMap: map, emissiveIntensity: PAGE_GLOW,
-        }));
-        mesh.position.copy(pos);
-        mesh.rotation.set(0, face, (pr2(n) - 0.5) * 0.3);
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        scene.add(mesh);
-        return { mesh, pos, n };
-      });
-    },
+    placePages(chosen) { return placePages(scene, chosen); },
 
     // a spot on the ground far from `away` (or anywhere), clear of colliders
     spawnPoint(seed, away) {
@@ -361,5 +352,3 @@ export async function buildWorld(scene, manager) {
   };
 }
 
-const pr2 = (n) => rng(n * 977)();
-const PAGE_GLOW = 0.05; // the pages' own faint glow (it was 0.32: bright enough to spot them in the dark from far off)

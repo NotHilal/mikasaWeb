@@ -12,9 +12,31 @@ const TEXTURES = [
   ['forest_leaves_02', '2k', ['Diffuse', 'nor_gl', 'arm']],  // ground
   ['brown_mud_leaves_01', '2k', ['Diffuse', 'nor_gl', 'arm']], // ground, second layer
   ['pine_bark', '1k', ['Diffuse', 'nor_gl', 'arm']],         // tree trunks
+  // Split (level 2)
+  ...[
+    'concrete_pavers_02',        // streets
+    'asphalt_02',                // roads
+    'concrete_floor_worn_001',   // indoor floors
+    'worn_tile_floor',           // mail room floor
+    'white_stucco',              // plaster walls
+    'plastered_wall',            // older plaster
+    'concrete_wall_008',         // concrete walls and bases
+    'rectangular_facade_tiles',  // tiled facades
+    'japanese_cedar_planks',     // beams, frames, wooden walls
+    'hinoki_planks',             // wooden floors (the heavens)
+    'grey_roof_tiles',           // roofs
+    'painted_metal_shutter',     // shutters
+    'corrugated_iron_02',        // sheds, awnings
+    'metal_plate',               // floor plates, doors
+    'dark_wood',                 // dark trim
+  ].map((id) => [id, '1k', ['Diffuse', 'nor_gl', 'arm']]),
 ];
 // models (glTF + their textures), plus maps the glTF doesn't reference (the fern's alpha is separate)
-const MODELS = [['fern_02', '1k', ['Alpha']], ['rock_moss_set_01', '1k'], ['tree_stump_01', '1k']];
+const MODELS = [['fern_02', '1k', ['Alpha']], ['rock_moss_set_01', '1k'], ['tree_stump_01', '1k'],
+  // Split (level 2): street clutter
+  ...['exterior_aircon_unit', 'rollershutter_door', 'metal_trash_can', 'trashbag', 'utility_box_01',
+    'wooden_crate_02', 'plastic_crate_01', 'cardboard_box_01', 'Barrel_01', 'planter_box_01',
+    'korean_public_payphone_01', 'security_camera_01'].map((id) => [id, '1k'])];
 
 const exists = (p) => access(p).then(() => true, () => false);
 

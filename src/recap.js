@@ -1,13 +1,12 @@
-// The end-of-round recap: a top-down map of the woods with both players' paths, the pages,
+// The end-of-round recap: a top-down map (the map draws itself: world.map) with both players' paths, the pages,
 // and the closest the hunter got, plus a few numbers. Drawn on a 2D canvas.
-import { MAP, PAGES } from './config.js';
+import { PAGES } from './config.js';
 
 const COL = {
   seeker: '#3fe0c5',
   hunter: '#a87bff',
   close: '#ff4655',
   ink: 'rgba(236, 232, 225, 0.9)',
-  faint: 'rgba(236, 232, 225, 0.09)',
 };
 
 const clock = (ms) => {
@@ -22,25 +21,12 @@ export function drawRecap(canvas, world, recap) {
   const g = canvas.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   // world x → right, world z → down (north is up)
-  const R = MAP.play + 4, k = size / (2 * R);
+  const R = world.map.R + 4, k = size / (2 * R);
   const px = (x) => (x + R) * k, pz = (z) => (z + R) * k;
 
   // the play area
   g.clearRect(0, 0, size, size);
-  g.fillStyle = 'rgba(8, 14, 20, 0.85)';
-  g.beginPath(); g.arc(size / 2, size / 2, MAP.play * k, 0, Math.PI * 2); g.fill();
-  g.strokeStyle = 'rgba(236, 232, 225, 0.18)';
-  g.lineWidth = 1;
-  g.stroke();
-
-  // trees and landmarks, faint
-  g.fillStyle = COL.faint;
-  for (const t of world.trees) {
-    if (Math.hypot(t.x, t.z) > MAP.play) continue;
-    g.beginPath(); g.arc(px(t.x), pz(t.z), Math.max(0.8, t.r * k * 1.6), 0, Math.PI * 2); g.fill();
-  }
-  g.fillStyle = 'rgba(236, 232, 225, 0.2)';
-  for (const l of world.landmarks) g.fillRect(px(l.x) - 3, pz(l.z) - 3, 6, 6);
+  world.map.draw(g, px, pz, k, true);
 
   // paths: the hunter first, so the seeker's line sits on top
   const path = (pts, color) => {

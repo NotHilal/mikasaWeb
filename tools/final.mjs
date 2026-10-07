@@ -136,11 +136,29 @@ try {
   await sleep(200);
   await guest.screenshot({ path: 'shots/page-lit.png' });
 
-  // --- every page found → the vote for the final duel -------------------------------------------
-  await guest.evaluate(() => { const m = window.__game.match; for (const p of m.pages) { m.send('page', { n: p.n }); m.takePage(p.n, true); } });
-  await Promise.all([host, guest].map((p) => p.waitForFunction(() => document.querySelector('#end').classList.contains('show'), { timeout: 5000 })));
-  const btn = await guest.$eval('#end-lobby', (e) => e.textContent);
-  check(btn === 'Final duel 0/2', `after the pages, the vote is for the final duel ("${btn}")`);
+  // --- every page found in the forest → level 2, Split ----------------------------------------
+  const allPages = () => guest.evaluate(() => { const m = window.__game.match; for (const p of m.pages) { m.send('page', { n: p.n }); m.takePage(p.n, true); } });
+  const ended = () => Promise.all([host, guest].map((p) => p.waitForFunction(() => document.querySelector('#end').classList.contains('show'), { timeout: 5000 })));
+  await allPages();
+  await ended();
+  let btn = await guest.$eval('#end-lobby', (e) => e.textContent);
+  check(btn === 'Level 2 0/2', `after the forest's pages, the vote is for level 2 ("${btn}")`);
+  await guest.click('#end-lobby');
+  await host.click('#end-lobby');
+  await Promise.all([host, guest].map((p) => p.waitForFunction(() => window.__game.match?.world?.name === 'split', { timeout: 30000 })));
+  const splitPages = await Promise.all([host, guest].map((p) => p.evaluate(() => JSON.stringify(window.__game.match.pages.map((q) => q.pos.toArray().map((v) => v.toFixed(2)))))));
+  check(splitPages[0] === splitPages[1], 'both voted: level 2 on Split, the same pages on both screens');
+  const starts = await Promise.all([host, guest].map((p) => p.evaluate(() => window.__game.player.pos.z)));
+  check(starts[0] < -38 && starts[1] > 44, `the hunter starts in defender spawn, the seeker in attacker spawn (z ${starts.map((z) => z.toFixed(0))})`);
+  await sleep(1500);
+  check(await host.evaluate(() => window.__game.match.remote.visible), 'the hunter sees the seeker on Split');
+  await guest.screenshot({ path: 'shots/level2-seeker.png' });
+
+  // --- every page found on Split → the vote for the final duel ------------------------------------
+  await allPages();
+  await ended();
+  btn = await guest.$eval('#end-lobby', (e) => e.textContent);
+  check(btn === 'Final duel 0/2', `after Split's pages, the vote is for the final duel ("${btn}")`);
   await guest.click('#end-lobby');
   await host.click('#end-lobby');
   await Promise.all([host, guest].map((p) => p.waitForFunction(() => window.__game.match?.constructor.name === 'Duel', { timeout: 5000 })));

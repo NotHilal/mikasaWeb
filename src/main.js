@@ -1,7 +1,8 @@
 // Boot, the menu/lobby flow and the main loop.
 import * as THREE from 'three';
-import { createEngine } from './engine.js';
+import { createEngine, quality } from './engine.js';
 import { buildWorld } from './world/world.js';
+import { buildSplit } from './world/split/index.js';
 import { createFlashlight } from './flashlight.js';
 import { Player } from './player.js';
 import { createViewmodel, createHunterArms } from './viewmodel.js';
@@ -36,7 +37,10 @@ const isoLoading = loadIso(manager).catch((e) => console.warn('Iso model failed 
 const slenderLoading = loadSlender(manager).catch((e) => console.warn('Slenderman model failed to load', e));
 // and the Classic (without it, a stand-in traced from the picture)
 const gunLoading = loadNocturnum(manager).catch((e) => console.warn('Classic model failed to load', e));
-const world = await buildWorld(engine.scene, manager);
+// the forest (level 1), in a group of its own so it can be hidden while Split (level 2) is played
+const forest = new THREE.Group();
+engine.scene.add(forest);
+const world = await buildWorld(forest, manager);
 await Promise.all([isoLoading, slenderLoading, gunLoading]);
 const flashlight = createFlashlight(engine.scene);
 const player = new Player(engine.camera, world, canvas);
@@ -62,7 +66,7 @@ function prewarm() {
   engine.renderer.compile(engine.viewScene, engine.camera);
   engine.render(0); // (and their shadows)
   engine.scene.remove(...extra);
-  for (const p of pages) { engine.scene.remove(p.mesh); p.mesh.material.map.dispose(); p.mesh.material.dispose(); }
+  for (const p of pages) { p.mesh.removeFromParent(); p.mesh.material.map.dispose(); p.mesh.material.dispose(); }
   hunterArms.update(0, engine.camera, 0, 0);
 }
 prewarm();
@@ -161,22 +165,29 @@ net.on('bye', () => {
     show('menu');
   }
 });
-// after a round, both players vote (1/2, 2/2) to go back to the lobby, or, when the seeker found
-// every page, on to the final duel; both votes and it happens
-const vote = { mine: false, theirs: false, duel: false };
+// after a round, both players vote (1/2, 2/2) on what's next: when the seeker found every page,
+// level 2 (Split) after the forest, the final duel after Split; otherwise back to the lobby.
+// Both votes and it happens.
+const vote = { mine: false, theirs: false, next: 'lobby' };
+const NEXT = {
+  lobby: ['Back to lobby', 'Your friend wants a rematch'],
+  level2: ['Level 2', 'Your friend is ready for level 2'],
+  duel: ['Final duel', 'Your friend is ready for the duel'],
+};
 function renderVote() {
   const n = (vote.mine ? 1 : 0) + (vote.theirs ? 1 : 0);
   const btn = $('#end-lobby');
-  btn.textContent = `${vote.duel ? 'Final duel' : 'Back to lobby'} ${n}/2`;
+  btn.textContent = `${NEXT[vote.next][0]} ${n}/2`;
   btn.classList.toggle('voted', vote.mine);
   btn.classList.toggle('asked', vote.theirs && !vote.mine); // they're waiting on me
   $('#end-vote-note').textContent = vote.mine && !vote.theirs ? 'Waiting for your friend…'
-    : vote.theirs && !vote.mine ? (vote.duel ? 'Your friend is ready for the duel' : 'Your friend wants a rematch') : '';
+    : vote.theirs && !vote.mine ? NEXT[vote.next][1] : '';
 }
 function checkVote() {
   renderVote();
   if (!(vote.mine && vote.theirs && match)) return;
-  if (vote.duel) startDuel();
+  if (vote.next === 'duel') startDuel();
+  else if (vote.next === 'level2') startMatch(nextSeed(round.seed), 2); // (both screens work out the same seed)
   else { endMatch(); show('lobby'); renderLobby(); }
 }
 net.on('vote', ({ on }) => { if (!match) return; vote.theirs = !!on; checkVote(); });
@@ -241,6 +252,16 @@ if (import.meta.env.DEV) {
     startDuel();
   });
   net.on('devduel', () => startDuel());
+  // F7: straight into level 2 (Split), the same way
+  addEventListener('keydown', (e) => {
+    if (e.code !== 'F7') return;
+    e.preventDefault();
+    const seed = Math.floor(Math.random() * 1e9);
+    if (lobby.partner) net.send('devsplit', { seed });
+    else if (!net.room) { lobby.host = true; lobby.hostRole = 'seeker'; }
+    startMatch(seed, 2);
+  });
+  net.on('devsplit', ({ seed }) => startMatch(seed, 2));
 }
 
 // the gift: the seeker puts the 5 pieces together and reads the message; the hunter waits
@@ -368,25 +389,62 @@ function leaveToMenu() {
   show('menu');
 }
 
+// --- levels: the forest (1), then Split (2) ----------------------------------------
+// Split is built in the background once the menu is up (it takes a moment), so it's ready by the
+// time anyone finishes the forest.
+let split = null;
+const splitReady = new Promise((r) => setTimeout(r, 1200))
+  .then(() => buildSplit(new THREE.LoadingManager(), quality))
+  .then((s) => { split = s; return s; })
+  .catch((e) => console.warn('Split failed to load', e));
+const round = { level: 1, seed: 0 };
+const nextSeed = (seed) => (seed * 7 + 12345) % 1e9;
+let onSplit = false;
+// show the level's map (and hide the other), and point the player and the effects at it
+function useLevel(level) {
+  const want = level === 2;
+  if (want === onSplit) return;
+  if (want) {
+    forest.visible = false;
+    split.enter(engine);
+    player.world = effects.world = split;
+    engine.renderer.compile(engine.scene, engine.camera); // (now, before the round, not mid-way)
+  } else {
+    split.exit(engine);
+    forest.visible = true;
+    player.world = effects.world = world;
+  }
+  onSplit = want;
+}
+
 // --- matches -------------------------------------------------------------------
-function startMatch(seed) {
+function startMatch(seed, level = 1) {
+  if (level === 2 && !split) {
+    toast('Loading level 2…');
+    splitReady.then((s) => { if (s) startMatch(seed, 2); else toast('Level 2 failed to load'); });
+    return;
+  }
   if (match) match.dispose();
   vote.mine = vote.theirs = false;
   lobby.ready = false; // back in the lobby afterwards, the guest readies up again
-  match = new Match({ engine, world, player, flashlight, viewmodel, hunterArms, effects }, { seed, role: myRole() }, (result, recap) => {
+  Object.assign(round, { level, seed });
+  useLevel(level);
+  const map = level === 2 ? split : world;
+  match = new Match({ engine, world: map, player, flashlight, viewmodel, hunterArms, effects }, { seed, role: myRole() }, (result, recap) => {
     document.exitPointerLock();
-    vote.duel = result === 'pages'; // every page found: the final duel comes next
+    // every page found: level 2 after the forest, the final duel after Split
+    vote.next = result !== 'pages' ? 'lobby' : round.level === 1 ? 'level2' : 'duel';
     const won = (result === 'pages') === (myRole() === 'seeker');
     $('#end-title').textContent = won ? 'Victory' : 'Defeat';
-    $('#end-sub').textContent = result === 'pages' ? 'All 5 pages found' : 'The seeker was caught';
+    $('#end-sub').textContent = result !== 'pages' ? 'The seeker was caught' : round.level === 1 ? 'All 5 pages found · Level 2 next' : 'All 5 pages found on Split';
     $('#end').classList.toggle('win', won);
     $('#end').classList.toggle('lose', !won);
     renderVote();
     $('#recap-stats').innerHTML = recapStats(recap, myRole()).map(([k, v, sub]) =>
       `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`).join('');
-    setTimeout(() => { show('end'); drawRecap($('#recap-map'), world, recap); }, 600);
+    setTimeout(() => { show('end'); drawRecap($('#recap-map'), map, recap); }, 600);
   });
-  $('#ctp-eyebrow').textContent = 'Round starting';
+  $('#ctp-eyebrow').textContent = level === 2 ? 'Level 2 · Split' : 'Level 1 · The forest';
   takeMouse();
 }
 
@@ -396,6 +454,7 @@ function endMatch() {
   closePuzzle = null;
   match?.dispose();
   match = null;
+  if (onSplit) useLevel(1); // (the menu walks through the forest)
   document.exitPointerLock();
   flashlight.on = true;
 }
@@ -748,4 +807,4 @@ else show('menu');
 setTimeout(renderRolePortraits, 300);
 
 // for headless tests
-window.__game = { THREE, engine, world, player, net, lobby, flashlight, viewmodel, effects, get match() { return match; }, startMatch, startDuel };
+window.__game = { THREE, engine, world, player, net, lobby, flashlight, viewmodel, effects, get match() { return match; }, get split() { return split; }, splitReady, startMatch, startDuel };

@@ -1,14 +1,16 @@
-// "How to play": a few slides, one per thing to know (moving, each ability of each role, the
-// hunter's immunity), each with a short looping animation (SVG, animated with SMIL so it restarts
+// "How to play": a few slides, one per thing to know (the goal, moving, each ability of each role,
+// the dread, the hunter's immunity, the minimap and its late page circles), each with a short
+// looping animation (SVG, animated with SMIL so it restarts
 // whenever its slide is shown) and the keys from the player's own bindings. The characters are
 // drawn with their real pictures (rendered from the 3D models, see portraits.js): head shots on
 // the maps seen from above, Slenderman whole in the side views.
 import { label } from './keys.js';
 import { characterImages } from './portraits.js';
-import { GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, GRAB, PAGES } from './config.js';
+import { GUN, DART, PAGE_HINT, PAGE_ZONES, FLASH, DASH, TELEPORT, EYE, GRAB, PAGES, QUIET } from './config.js';
 import { $ } from './ui.js';
 
 const TEAL = '#3fe0c5', PURPLE = '#a87bff', RED = '#ff4655', INK = '#ece8e1', DIM = '#2a3440', KEY = '#1b2733', SHIELD = '#8ce6ff';
+const PINK = '#ff408c', GOLD = '#ffd84d'; // the eye's zone and the page circles, as on the minimap
 let IMG = {}; // the characters' pictures (characterImages), set when How to play opens
 
 // --- little SVG helpers ---------------------------------------------------------------------
@@ -57,11 +59,22 @@ function slenderSide(x, red) {
   return `<g fill="${DIM}">${fill}<ellipse cx="${x}" cy="${SIDE.head}" rx="9" ry="13"/><path d="M${x - 13} ${SIDE.head + 16}h26l4 62-6 66h-7l-4-50-4 50h-7l-6-66z"/></g>`;
 }
 
+// a minimap, as in the HUD: the dark disc, a few trees, the red fence round its edge
+const mapDisc = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r + 3}" fill="rgba(8,14,20,.9)"/>`
+  + [[-0.5, -0.3], [0.3, -0.55], [0.55, 0.2], [-0.2, 0.45], [0.1, 0.05], [-0.6, 0.35], [0.4, 0.6]]
+    .map(([x, y]) => `<rect x="${cx + x * r - 1.5}" y="${cy + y * r - 1.5}" width="3" height="3" fill="rgba(236,232,225,.18)"/>`).join('')
+  + `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,70,85,.7)" stroke-width="1.5"/>`;
+// you on the minimap: the arrow, pointing the way you look (degrees clockwise from up)
+const mapYou = (angle = 0) => `<path d="M0 -7 L5 6 L0 3 L-5 6Z" fill="${TEAL}" transform="rotate(${angle})"/>`;
+// a page already taken, on the minimap
+const mapPage = (x, y) => `<rect x="${x - 3}" y="${y - 3}" width="6" height="6" fill="rgba(236,232,225,.9)" transform="rotate(45 ${x} ${y})"/>`;
+
 const wrap = (body) => `<svg viewBox="0 0 320 200" class="ht-svg" xmlns="http://www.w3.org/2000/svg">
   <defs><pattern id="ht-grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20 0H0V20" fill="none" stroke="rgba(236,232,225,.05)"/></pattern>
   <radialGradient id="ht-beam" cx="0.5" cy="1" r="1"><stop offset="0" stop-color="#fff1dc" stop-opacity=".55"/><stop offset="1" stop-color="#fff1dc" stop-opacity="0"/></radialGradient>
   <radialGradient id="ht-halo"><stop offset="0" stop-color="${TEAL}" stop-opacity=".7"/><stop offset="1" stop-color="${TEAL}" stop-opacity="0"/></radialGradient>
   <clipPath id="ht-clip"><circle r="10"/></clipPath>
+  <filter id="ht-static"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="1" seed="3"><animate attributeName="seed" values="1;9;4;7;2" dur="0.3s" repeatCount="indefinite" calcMode="discrete"/></feTurbulence><feColorMatrix values="0 0 0 0 0.9  0 0 0 0 0.9  0 0 0 0 0.9  0 0 0 1.4 -0.5"/></filter>
   <filter id="ht-red"><feFlood flood-color="${RED}"/><feComposite in2="SourceAlpha" operator="in"/></filter></defs>
   <rect width="320" height="200" fill="#0b141d"/><rect width="320" height="200" fill="url(#ht-grid)"/>${body}</svg>`;
 
@@ -71,24 +84,40 @@ function slides() {
   const mins = PAGE_HINT.afterMs / 60000;
   return [
     {
-      role: 'Both', name: 'Moving', keys: [k('forward'), k('left'), k('back'), k('right'), k('sprint'), k('jump')],
-      text: `<b>${k('forward')} ${k('left')} ${k('back')} ${k('right')}</b> to move, the mouse to look. <b>${k('sprint')}</b> sprints (seeker only, until the stamina bar runs out). <b>${k('walk')}</b> walks slowly without a sound (seeker only; both in the duel). <b>${k('crouch')}</b> crouches. <b>${k('jump')}</b> jumps over rocks and logs. <b>Esc</b> pauses.`,
+      role: 'Both', name: 'The game', keys: [],
+      text: `One of you is <b>Iso</b>, the seeker, with a flashlight and a pistol. The other is <b>Slender</b>, the hunter, tall, quick to strike and hard to shake off. Iso has to find the <b>${PAGES} pages</b> pinned around the dark forest. Slender has to stop her: his <b>${GRAB.kill === 3 ? 'third' : `${GRAB.kill}th`} grab</b> catches her and ends the round. Each of you has abilities to help: the next slides show them.`,
       art: (() => {
-        const d = 4, red = (a, b) => A('fill', a === 0 ? `${RED};${KEY}` : `${KEY};${RED};${KEY}`, a === 0 ? `0;${b}` : `0;${a};${b}`, d, 'discrete');
-        return wrap(`
-          <rect x="55" y="55" width="60" height="70" fill="none" stroke="rgba(236,232,225,.12)" stroke-dasharray="4 4"/>
-          <g>${T('115 125;115 55;55 55;55 125;115 125', '0;0.25;0.5;0.75;1', d)}${seeker()}</g>
-          ${keycap(240, 70, k('forward'), { extra: red(0, 0.25) })}
-          ${keycap(208, 102, k('left'), { extra: red(0.25, 0.5) })}
-          ${keycap(240, 102, k('back'), { extra: red(0.5, 0.75) })}
-          ${keycap(272, 102, k('right'), { extra: red(0.75, 1) })}
-          ${keycap(240, 140, k('sprint'), { w: 72 })}${text(240, 168, 'sprint', { size: 11, fill: 'rgba(236,232,225,.55)' })}
-          ${keycap(240, 182, k('jump'), { w: 96 })}`);
+        const d = 6;
+        return wrap(`${trees([4, 6])}
+          <g transform="translate(80 130)">${seeker({ angle: 50 })}</g>${text(80, 160, 'ISO · SEEKER', { size: 11, fill: TEAL })}
+          <g>${T('250 60;205 85;250 60', '0;0.5;1', d)}${hunter({ angle: -120 })}</g>${text(252, 36, 'SLENDER · HUNTER', { size: 11, fill: PURPLE })}
+          ${[0, 1, 2, 3, 4, 5, 6].map((i) => `<rect x="${57 + i * 10}" y="20" width="7" height="9" fill="#d9d4c5">${A('opacity', '0.2;0.2;1;1', `0;${0.1 + i * 0.1};${0.1 + i * 0.1 + 0.001};1`, d, 'discrete')}</rect>`).join('')}
+          ${text(92, 46, `FIND ALL ${PAGES} PAGES`, { size: 11, fill: TEAL })}
+          ${text(252, 186, `${GRAB.kill} GRABS CATCH HER`, { size: 11, fill: PURPLE })}`);
       })(),
     },
     {
-      role: 'Seeker', name: 'Classic', keys: [k('shoot'), k('reload')],
-      text: `<b>${k('shoot')}</b> fires. ${GUN.ammo} rounds, then it reloads by itself in ${GUN.reloadMs / 1000} s; <b>${k('reload')}</b> reloads before that (same time, no shooting meanwhile). A body hit stuns the hunter for ${GUN.bodyStunMs / 1000} s, a headshot for ${GUN.headStunMs / 1000} s: he can't move or use anything while he glows red.`,
+      role: 'Both', name: 'Moving', keys: [k('forward'), k('left'), k('back'), k('right'), k('sprint'), k('walk'), k('crouch'), k('jump')],
+      text: `<b>${k('forward')} ${k('left')} ${k('back')} ${k('right')}</b> to move, the mouse to look, <b>${k('jump')}</b> to jump over rocks and logs. <b>${k('sprint')}</b> sprints (the seeker only, until the stamina bar runs out). Hold <b>${k('walk')}</b> to walk quietly: ${Math.round(QUIET.speed * 100)}% speed and no footsteps to hear (the seeker; both in the duel). Hold <b>${k('crouch')}</b> to crouch: lower and slower, no sprinting or jumping, and a smaller target. <b>Esc</b> pauses.`,
+      art: (() => {
+        const d = 4, red = (a, b) => A('fill', a === 0 ? `${RED};${KEY}` : `${KEY};${RED};${KEY}`, a === 0 ? `0;${b}` : `0;${a};${b}`, d, 'discrete');
+        const label = (x, y, s) => text(x, y, s, { size: 9, fill: 'rgba(236,232,225,.55)' });
+        return wrap(`
+          <rect x="55" y="55" width="60" height="70" fill="none" stroke="rgba(236,232,225,.12)" stroke-dasharray="4 4"/>
+          <g>${T('115 125;115 55;55 55;55 125;115 125', '0;0.25;0.5;0.75;1', d)}${seeker()}</g>
+          ${keycap(240, 44, k('forward'), { extra: red(0, 0.25) })}
+          ${keycap(208, 76, k('left'), { extra: red(0.25, 0.5) })}
+          ${keycap(240, 76, k('back'), { extra: red(0.5, 0.75) })}
+          ${keycap(272, 76, k('right'), { extra: red(0.75, 1) })}
+          ${keycap(205, 118, k('sprint'), { w: 66 })}${label(205, 142, 'SPRINT')}
+          ${keycap(277, 118, k('walk'), { w: 66 })}${label(277, 142, 'QUIET WALK')}
+          ${keycap(205, 164, k('crouch'), { w: 66 })}${label(205, 188, 'CROUCH')}
+          ${keycap(277, 164, k('jump'), { w: 66 })}${label(277, 188, 'JUMP')}`);
+      })(),
+    },
+    {
+      role: 'Seeker', name: 'Classic', keys: [k('shoot'), k('reload'), k('inspect')],
+      text: `<b>${k('shoot')}</b> fires. ${GUN.ammo} rounds, then it reloads by itself in ${GUN.reloadMs / 1000} s; <b>${k('reload')}</b> reloads before that (same time, no shooting meanwhile). A body hit stuns the hunter for ${GUN.bodyStunMs / 1000} s, a headshot for ${GUN.headStunMs / 1000} s: he can't move or use anything while he glows red. <b>${k('inspect')}</b> shows off the gun.`,
       art: (() => {
         const d = 4.5;
         return wrap(`
@@ -104,7 +133,7 @@ function slides() {
     },
     {
       role: 'Seeker', name: 'Recon dart', keys: [k('dart')],
-      text: `<b>${k('dart')}</b> fires a dart that sends out ${DART.pulses} scans. If the hunter is within ${DART.radius} m of it, you see him through the trees for a moment (he is told). ${DART.cooldown} s cooldown.`,
+      text: `<b>${k('dart')}</b> fires a dart that sends out ${DART.pulses} scans, ${DART.radius} m round. If the hunter is inside, you see him through the trees for a moment (he is told). The zone shows on both minimaps, yours and his: he sees where you're searching. ${DART.cooldown} s cooldown.`,
       art: (() => {
         const d = 5, pulse = (s) => `<circle cx="170" cy="100" fill="none" stroke="${TEAL}" stroke-width="2">${A('r', '0;0;75;75', `0;${s};${s + 0.14};1`, d)}${A('opacity', '0;0;0.9;0;0', `0;${s - 0.001};${s};${s + 0.14};1`, d)}</circle>`;
         return wrap(`${trees([2])}
@@ -176,6 +205,23 @@ function slides() {
       })(),
     },
     {
+      role: 'Seeker', name: 'Dread', keys: [],
+      text: `You can feel the hunter coming. As he gets closer, <b>static</b> creeps over your screen and a <b>heartbeat</b> grows louder and faster; looking right at him makes it worse. Lots of static, a racing heart: he's near, even if you can't see him.`,
+      art: (() => {
+        const d = 6;
+        // heartbeats closer and closer together as he comes in
+        const beats = [0.02, 0.17, 0.3, 0.41, 0.5, 0.57, 0.63, 0.68, 0.72, 0.76, 0.8, 0.83, 0.86, 0.89];
+        const heart = A('opacity', `0.25;${beats.map(() => '1;0.25').join(';')}`, `0;${beats.flatMap((b) => [b, b + 0.025]).join(';')}`, d, 'discrete');
+        return wrap(`${trees([4, 6, 2])}
+          <g transform="translate(70 120)">${seeker({ angle: 80 })}</g>
+          <g>${T('300 95;300 95;120 112;120 112', '0;0.05;0.9;1', d)}${A('opacity', '0;0;0.7;0.7', '0;0.05;0.6;1', d)}${hunter({ angle: -100 })}</g>
+          <rect width="320" height="200" filter="url(#ht-static)">${A('opacity', '0;0;0.55;0.55', '0;0.05;0.9;1', d)}</rect>
+          <g transform="translate(262 38)">${heart}<path d="M0 8 C-14 -2 -10 -14 0 -7 C10 -14 14 -2 0 8Z" fill="${RED}"/></g>
+          <g>${shown(0, 0.45, d)}${text(262, 66, 'FAR', { size: 11, fill: 'rgba(236,232,225,.6)' })}</g>
+          <g>${shown(0.45, 1, d)}${text(262, 66, 'CLOSE', { size: 11, fill: RED })}</g>`);
+      })(),
+    },
+    {
       role: 'Seeker', name: 'Break free', keys: [k('escape')],
       text: `When the hunter grabs you, mash <b>${k('escape')}</b> to fill the bar before the time runs out. The first grab is easy (${GRAB.escape[0].presses} presses), the second is hard (${GRAB.escape[1].presses}, and the bar drains). The ${GRAB.kill === 3 ? 'third' : `${GRAB.kill}th`} grab can't be escaped.`,
       art: (() => {
@@ -210,7 +256,7 @@ function slides() {
     },
     {
       role: 'Hunter', name: 'Eye', keys: [k('eye')],
-      text: `<b>${k('eye')}</b> throws an eye that flies up to about ${Math.round(EYE.speed * EYE.flight)} m (press <b>${k('eye')}</b> again to stop it early), then reveals the seeker if they're within ${EYE.radius} m, through the trees. ${EYE.cooldown} s cooldown.`,
+      text: `<b>${k('eye')}</b> throws an eye that flies up to about ${Math.round(EYE.speed * EYE.flight)} m (press <b>${k('eye')}</b> again to stop it early), then reveals the seeker if they're within ${EYE.radius} m, through the trees. Its zone shows on your minimap (only yours). ${EYE.cooldown} s cooldown.`,
       art: (() => {
         const d = 5;
         return wrap(`${trees([3, 8])}
@@ -252,6 +298,42 @@ function slides() {
           <g>${shown(0.08, 0.36, d)}${text(255, 60, 'STUNNED', { fill: RED, size: 16 })}</g>
           <g>${shown(0.6, 0.76, d)}${text(255, 100, 'RESISTED', { fill: INK, size: 14 })}</g>
           <g>${shown(0.9, 1, d)}${text(255, 60, 'STUNNABLE AGAIN', { fill: INK, size: 12 })}</g>`);
+      })(),
+    },
+    {
+      role: 'Both', name: 'The minimap', keys: [],
+      text: `Top left: the forest from above, north up, its edge in red. The arrow is you, pointing where you look; white diamonds are pages already taken. Scans show as zones: the seeker's <b style="color:${TEAL}">dart</b> on both maps, the hunter's <b style="color:${PINK}">eye</b> on his only. It never shows the other player, or a page still to find.`,
+      art: (() => {
+        const d = 6, cx = 100, cy = 100, r = 80;
+        const zone = (x, y, rr, col, a, b) => `<circle cx="${x}" cy="${y}" fill="${col}" fill-opacity=".22" stroke="${col}" stroke-width="2">`
+          + `${A('r', `0;0;${rr};${rr};${rr}`, `0;${a};${a + 0.08};${b};1`, d)}${A('opacity', '0;0;1;1;0;0', `0;${a - 0.001};${a};${b - 0.1};${b};1`, d)}</circle>`;
+        return wrap(`${mapDisc(cx, cy, r)}
+          ${mapPage(70, 62)}${mapPage(132, 146)}
+          ${zone(142, 78, 28, TEAL, 0.12, 0.55)}${zone(70, 128, 24, PINK, 0.5, 0.95)}
+          <g transform="translate(96 108)"><g>${R('0;70;-30;0', '0;0.35;0.7;1', d)}${mapYou()}</g></g>
+          ${text(255, 48, 'YOU', { size: 11, fill: TEAL })}
+          ${text(255, 72, 'PAGES TAKEN', { size: 11, fill: INK })}
+          <g>${shown(0.12, 0.55, d)}${text(255, 104, 'DART · BOTH MAPS', { size: 11, fill: TEAL })}</g>
+          <g>${shown(0.5, 0.95, d)}${text(255, 128, "EYE · THE HUNTER'S", { size: 11, fill: PINK })}</g>
+          ${text(255, 168, 'NEVER THE OTHER', { size: 10, fill: 'rgba(236,232,225,.5)' })}${text(255, 182, 'PLAYER', { size: 10, fill: 'rgba(236,232,225,.5)' })}`);
+      })(),
+    },
+    {
+      role: 'Both', name: 'Page circles', keys: [],
+      text: `After <b>${PAGE_ZONES.afterMs / 60000} minutes</b> of a round, both minimaps circle every page still missing: ${PAGE_ZONES.radius * 2} m across, the page anywhere inside, not necessarily the middle. The seeker knows where to search, the hunter where to guard. A circle goes once its page is taken.`,
+      art: (() => {
+        const d = 6, cx = 100, cy = 100, r = 80, mins = PAGE_ZONES.afterMs / 60000;
+        const pulse = A('stroke-opacity', '0;0;1;0.55;1;0.55;1', '0;0.25;0.26;0.45;0.6;0.75;0.9', d);
+        const circle = (x, y, gone) => `<circle cx="${x}" cy="${y}" r="21" fill="${GOLD}" fill-opacity=".1" stroke="${GOLD}" stroke-width="1.6" stroke-dasharray="4 3">`
+          + `${pulse}${A('opacity', gone ? '0;1;0;0' : '0;1;1', gone ? `0;0.25;0.7;1` : '0;0.25;1', d, 'discrete')}</circle>`;
+        return wrap(`${mapDisc(cx, cy, r)}
+          ${mapPage(118, 60)}
+          ${circle(62, 70, false)}${circle(140, 120, true)}${circle(80, 148, false)}
+          <g transform="translate(108 92)">${mapYou(120)}</g>
+          <g>${shown(0, 0.25, d)}${text(258, 44, `${mins - 1}:59`, { size: 20, fill: 'rgba(236,232,225,.6)' })}</g>
+          <g>${shown(0.25, 1, d)}${text(258, 44, `${mins}:00`, { size: 20, fill: GOLD })}</g>
+          <g>${shown(0.27, 1, d)}${text(258, 78, 'MISSING PAGES', { size: 11, fill: GOLD })}${text(258, 94, 'CIRCLED', { size: 11, fill: GOLD })}${text(258, 118, 'ON BOTH MAPS', { size: 10, fill: 'rgba(236,232,225,.6)' })}</g>
+          <g>${shown(0.7, 1, d)}${text(258, 160, '+1 PAGE', { size: 13, fill: TEAL })}${text(258, 176, 'ITS CIRCLE GOES', { size: 10, fill: 'rgba(236,232,225,.6)' })}</g>`);
       })(),
     },
   ];

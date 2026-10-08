@@ -46,24 +46,34 @@ function loadPicture() {
 // The card (its screen must already be showing): the picture on the front; a click turns it over
 // to the back picture (and back again, unless the click was on the scratch-off). On the back, the
 // scratch-off sits over GIFT.scratchArea, and its coating is that same patch of the picture.
-// onFlip() the first time it's turned over, onScratched() once the prize shows.
-export function openCard({ onFlip, onScratched }) {
+// onFlip() the first time it's turned over, onScratched() once the prize shows. send(type, data):
+// what she does goes to the other screen ('gc-flip' { flipped }, her scratch strokes 'gs' { pts },
+// in fractions of the scratch-off, 'gc-done' once it's off). watch: the hunter's screen, that only
+// shows it as her messages say (returns { apply(type, data) }).
+export function openCard({ onFlip, onScratched, send, watch = false }) {
   const card = $('#card'), box = $('#scratch'), cv = $('#scratch-cover'), hint = $('#card-hint'), back = $('#card-back-img');
   card.classList.remove('flipped');
   box.classList.remove('revealed');
   hint.classList.remove('gone');
   // no way out until the gift is scratched off
   $('#letter-menu').classList.remove('show');
-  hint.textContent = 'Click the card to turn it over';
+  const HINT = watch ? { front: 'She is looking at the card', back: 'She is scratching the silver', done: 'She found it ♥' }
+    : { front: 'Click the card to turn it over', back: 'Scratch the silver', done: 'For you ♥' };
+  hint.textContent = HINT.front;
   const [small, big, sub] = GIFT.prize;
   $('#scratch-prize').innerHTML = `<div>${small ?? ''}</div><div class="amt">${big ?? ''}</div><div class="sub">${sub ?? ''}</div>`;
 
   let flippedOnce = false, done = false;
-  card.onclick = (e) => {
+  const flip = (to) => {
+    card.classList.toggle('flipped', to);
+    if (!done) hint.textContent = to ? HINT.back : HINT.front;
+    if (to && !flippedOnce) { flippedOnce = true; onFlip?.(); }
+  };
+  card.style.cursor = watch ? 'default' : '';
+  card.onclick = watch ? null : (e) => {
     if (box.contains(e.target)) return;
-    card.classList.toggle('flipped');
-    if (!done) hint.textContent = card.classList.contains('flipped') ? 'Scratch the silver' : 'Click the card to turn it over';
-    if (!flippedOnce) { flippedOnce = true; onFlip?.(); }
+    flip(!card.classList.contains('flipped'));
+    send?.('gc-flip', { flipped: card.classList.contains('flipped') });
   };
 
   // the scratch-off goes where the back picture has its silver patch (in fractions of the picture,
@@ -93,7 +103,10 @@ export function openCard({ onFlip, onScratched }) {
     g.globalCompositeOperation = 'destination-out';
     g.lineCap = g.lineJoin = 'round';
     g.lineWidth = cv.height * 0.16;
+    // (watching: strokes that came before the coating was ready)
+    for (const pts of early.splice(0)) strokes(pts);
   };
+  const early = [];
   const ready = () => { place(); requestAnimationFrame(() => requestAnimationFrame(paint)); };
   back.onload = () => { pic = back; ready(); };
   back.onerror = () => { pic = null; ready(); };
@@ -109,40 +122,76 @@ export function openCard({ onFlip, onScratched }) {
   };
   let last = null;
   const at = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * (cv.width / r.width), (e.clientY - r.top) * (cv.height / r.height)]; };
-  const scratch = (e) => {
-    if (!g || done) return;
-    const [x, y] = at(e);
+  // scratch from the last spot to (x, y) (canvas pixels); a fresh stroke starts a dot
+  const line = (x, y) => {
     g.beginPath();
     g.moveTo(...(last ?? [x - 0.1, y]));
     g.lineTo(x, y);
     g.stroke();
     last = [x, y];
-    if (++moves % 8 === 0 && cleared() >= GIFT.scratched) {
-      done = true;
-      box.classList.add('revealed');
-      hint.textContent = 'For you ♥';
-      setTimeout(() => $('#letter-menu').classList.add('show'), 1500); // (after a moment with it)
-      onScratched?.();
+  };
+  const reveal = () => {
+    done = true;
+    box.classList.add('revealed');
+    hint.textContent = HINT.done;
+    setTimeout(() => $('#letter-menu').classList.add('show'), 1500); // (after a moment with it)
+    onScratched?.();
+  };
+  // her strokes, sent in batches (fractions of the scratch-off; null starts a new stroke)
+  let batch = [], flushT = null;
+  const flush = () => { clearTimeout(flushT); flushT = null; if (batch.length) send?.('gs', { pts: batch }); batch = []; };
+  const scratch = (e) => {
+    if (!g || done) return;
+    const [x, y] = at(e);
+    if (!last) batch.push(null);
+    line(x, y);
+    batch.push([+(x / cv.width).toFixed(4), +(y / cv.height).toFixed(4)]);
+    if (!flushT) flushT = setTimeout(flush, 50);
+    if (++moves % 8 === 0 && cleared() >= GIFT.scratched) { flush(); send?.('gc-done', {}); reveal(); }
+  };
+  // watching: her strokes, drawn the same way on my copy
+  const strokes = (pts) => {
+    if (!g) { early.push(pts); return; }
+    for (const p of pts) {
+      if (!p) { last = null; continue; }
+      line(p[0] * cv.width, p[1] * cv.height);
     }
   };
-  cv.onpointerdown = (e) => { e.preventDefault(); cv.setPointerCapture(e.pointerId); last = null; scratch(e); cv.onpointermove = scratch; };
-  cv.onpointerup = cv.onpointercancel = () => { cv.onpointermove = null; last = null; };
+  if (!watch) {
+    cv.onpointerdown = (e) => { e.preventDefault(); cv.setPointerCapture(e.pointerId); last = null; scratch(e); cv.onpointermove = scratch; };
+    cv.onpointerup = cv.onpointercancel = () => { cv.onpointermove = null; last = null; flush(); };
+    return null;
+  }
+  cv.onpointerdown = cv.onpointermove = cv.onpointerup = cv.onpointercancel = null;
+  cv.style.cursor = 'default';
+  return {
+    apply(type, d) {
+      if (type === 'gc-flip') flip(!!d.flipped);
+      else if (type === 'gs' && !done) strokes(d.pts || []);
+      else if (type === 'gc-done' && !done) { if (!card.classList.contains('flipped')) flip(true); reveal(); }
+    },
+  };
 }
 
 // Opens the puzzle screen (it must already be showing). onDone() when it's whole, onRead() when
-// the card is opened.
-export async function openPuzzle({ onDone, onRead }) {
+// the card is opened. send(type, data): what she does goes to the other screen as she does it
+// (the tray's order 'gp-order', a piece being dragged 'gp', dropped 'gp-up'; positions in board
+// units, so any screen size draws them in the same place). watch: the other screen, the hunter's,
+// that only shows it: no dragging, the pieces move as her messages say (apply(type, data)).
+// Returns close() (or, watching, { close, apply }).
+export async function openPuzzle({ onDone, onRead, send, watch = false }) {
   const root = $('#puzzle'), board = $('#puzzle-board'), tray = $('#puzzle-tray');
   root.querySelectorAll('.piece').forEach((p) => p.remove());
   board.classList.remove('done');
-  $('#puzzle-title').textContent = 'Put the pieces together';
-  $('#puzzle-note').textContent = 'Drag each piece to where it goes.';
+  $('#puzzle-title').textContent = watch ? 'She is putting it together' : 'Put the pieces together';
+  $('#puzzle-note').textContent = watch ? 'Watch the pieces come together.' : 'Drag each piece to where it goes.';
   $('#show-msg').classList.remove('show');
   const pic = await loadPicture();
   $('#letter-img').src = pic.src;
 
-  // pieces in a shuffled order in the tray
-  const order = REGIONS.map((_, i) => i).sort(() => Math.random() - 0.5);
+  // pieces in a shuffled order in the tray (watching: hers, once it comes)
+  let order = REGIONS.map((_, i) => i).sort(() => Math.random() - 0.5);
+  if (!watch) send?.('gp-order', { order });
   const pieces = REGIONS.map((reg, i) => {
     const el = document.createElement('div');
     el.className = 'piece';
@@ -192,9 +241,28 @@ export async function openPuzzle({ onDone, onRead }) {
     p.el.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
   }
   const home = (p) => { const t = traySlots[p.n]; put(p, t.x, t.y, t.s); };
+  // a spot on the screen ↔ in board units (0..1 across and down the board)
+  const toBoard = (x, y) => { const r = root.getBoundingClientRect(), b = board.getBoundingClientRect(); return [(x - (b.left - r.left)) / bw, (y - (b.top - r.top)) / bh]; };
+  const fromBoard = ([u, v]) => { const r = root.getBoundingClientRect(), b = board.getBoundingClientRect(); return [b.left - r.left + u * bw, b.top - r.top + v * bh]; };
+  // a piece dropped: in its place, or back to the tray
+  const drop = (p, placed) => {
+    p.el.classList.remove('drag');
+    if (placed) {
+      p.placed = true;
+      p.el.classList.add('placed');
+      put(p, slot(p).x, slot(p).y, 1);
+      if (pieces.every((q) => q.placed)) complete();
+    } else {
+      p.el.classList.add('wrong');
+      setTimeout(() => p.el.classList.remove('wrong'), 400);
+      home(p);
+    }
+  };
 
-  // dragging
+  // dragging (not when watching)
+  let lastSent = 0, trailing = null;
   for (const p of pieces) {
+    if (watch) { p.el.style.cursor = 'default'; continue; }
     p.el.onpointerdown = (e) => {
       if (p.placed) return;
       e.preventDefault();
@@ -203,27 +271,25 @@ export async function openPuzzle({ onDone, onRead }) {
       const rx = (e.clientX - root.getBoundingClientRect().left - p.x) / (p.w * p.s);
       const ry = (e.clientY - root.getBoundingClientRect().top - p.y) / (p.h * p.s);
       p.el.classList.add('drag');
-      const move = (ev) => {
+      const move = (ev, force = false) => {
         const r = root.getBoundingClientRect();
         put(p, ev.clientX - r.left - rx * p.w, ev.clientY - r.top - ry * p.h, 1);
+        // (to the other screen, about 25 times a second, and always where it ends up when she pauses)
+        const t = performance.now(), sendNow = () => { lastSent = performance.now(); trailing = null; send?.('gp', { i: p.n, at: toBoard(p.x, p.y) }); };
+        clearTimeout(trailing);
+        if (force || t - lastSent > 40) sendNow();
+        else trailing = setTimeout(sendNow, 40 - (t - lastSent));
       };
-      move(e);
+      move(e, true);
       p.el.onpointermove = move;
       p.el.onpointerup = p.el.onpointercancel = () => {
         p.el.onpointermove = p.el.onpointerup = p.el.onpointercancel = null;
-        p.el.classList.remove('drag');
+        clearTimeout(trailing); trailing = null;
         const to = slot(p);
         // close enough to its place: it snaps in; anywhere else: back to the tray
-        if (Math.hypot(p.x - to.x, p.y - to.y) < Math.max(36, Math.min(p.w, p.h) * 0.3)) {
-          p.placed = true;
-          p.el.classList.add('placed');
-          put(p, to.x, to.y, 1);
-          if (pieces.every((q) => q.placed)) complete();
-        } else {
-          p.el.classList.add('wrong');
-          setTimeout(() => p.el.classList.remove('wrong'), 400);
-          home(p);
-        }
+        const placed = Math.hypot(p.x - to.x, p.y - to.y) < Math.max(36, Math.min(p.w, p.h) * 0.3);
+        send?.('gp-up', { i: p.n, placed });
+        drop(p, placed);
       };
     };
   }
@@ -231,8 +297,8 @@ export async function openPuzzle({ onDone, onRead }) {
   function complete() {
     board.classList.add('done');
     $('#puzzle-title').textContent = 'Complete';
-    $('#puzzle-note').textContent = 'Every piece is in its place.';
-    setTimeout(() => $('#show-msg').classList.add('show'), 700);
+    $('#puzzle-note').textContent = watch ? 'Every piece is in its place. Now the card…' : 'Every piece is in its place.';
+    if (!watch) setTimeout(() => $('#show-msg').classList.add('show'), 700);
     onDone?.();
   }
 
@@ -244,5 +310,19 @@ export async function openPuzzle({ onDone, onRead }) {
   requestAnimationFrame(layout);
   const onResize = () => layout();
   addEventListener('resize', onResize);
-  return () => removeEventListener('resize', onResize);
+  const close = () => removeEventListener('resize', onResize);
+  if (!watch) return close;
+
+  // watching: her moves, as they come
+  const apply = (type, d) => {
+    const p = pieces[d.i];
+    if (type === 'gp-order') { order = d.order; layout(); }
+    else if (type === 'gp' && p && !p.placed) {
+      p.el.classList.add('drag');
+      p.el.style.transition = 'transform 60ms linear'; // (smooth between her updates)
+      const [x, y] = fromBoard(d.at);
+      put(p, x, y, 1);
+    } else if (type === 'gp-up' && p && !p.placed) { p.el.style.transition = ''; drop(p, d.placed); }
+  };
+  return { close, apply };
 }

@@ -50,6 +50,27 @@ export const SCARE = {
   fovDrop: 10,      // degrees the view narrows (his head fills the screen)
 };
 
+// The seeker's flashlight acts up now and then (only the seeker's; the hunter sees the light go out
+// too): it flickers for `flickerMs`, then goes dark for `darkMs` (no turning it back on meanwhile),
+// then comes back. Every `min`..`max` seconds at random (less when the hunter is near: up to
+// `nearFaster` × as often), never in the first `first` seconds, during a grab or the jumpscare.
+export const FLICKER = { first: 60, min: 60, max: 180, nearFaster: 2, flickerMs: 900, darkMs: 2000 };
+
+// Fake scares for the seeker (only he sees and hears them; they change nothing in the game), one
+// every `min`..`max` seconds at random, never in the first `first` seconds, during a grab, or when
+// the real hunter is closer than `safeDist` metres (so a fake is never mistaken for him, or him for a
+// fake). One of: a sighting (Slender between the trees `sightDist` metres off, for `sightMs`), the
+// whisper (`whisper`, from behind, to one side), a sudden silence (the crickets stop for
+// `silenceMs`), a burst of static (`glitchMs`). And after taking a page, `behindChance` of the time,
+// Slender stands right behind you (`behindDist` m) until you turn round, or `behindMs` goes by.
+export const SCARES = {
+  first: 120, min: 90, max: 180, safeDist: 30,
+  sightDist: [16, 28], sightMs: 550,
+  whisper: 'sounds/whisper.mp3', whisperVol: 0.9,
+  silenceMs: 8000, glitchMs: 450,
+  behindChance: 0.35, behindDist: 6, behindMs: 7000,
+};
+
 // Crouching (hold the key, both players): you stand `height` as tall (your view, how the other
 // player sees you, and in the duel your hitbox), move at `speed` × your walk, and can't sprint or jump.
 export const CROUCH = { height: 0.65, speed: 0.45 };
@@ -128,11 +149,12 @@ export const DART = { speed: 30, gravity: 6, radius: 30, pulses: 3, pulseGap: 2.
 // dart's scans also find pages: the closest one in range glows through the trees for `revealMs`
 // (on the seeker's screen only; the hunter is told a page was revealed, not where).
 export const PAGE_HINT = { afterMs: 240000, revealMs: 5000 };
-// And once the round has run `afterMs` (12 minutes), both players' minimaps circle every page still
+// And once the round has run `afterMs` (10 minutes), both players' minimaps circle every page still
 // missing (the same circles on both): 2 × `radius` metres across (40 m), the page anywhere inside
 // it, any spot as likely as any other (up to `offset` of the radius from the middle: 0.95, so not
-// right on the line). A circle goes once its page is taken.
-export const PAGE_ZONES = { afterMs: 12 * 60000, radius: 20, offset: 0.95 };
+// right on the line). A circle's middle is always at least `inside` metres in from the fence, so
+// more than half of it is on the map. A circle goes once its page is taken.
+export const PAGE_ZONES = { afterMs: 10 * 60000, radius: 20, offset: 0.95, inside: 5 };
 export const FLASH = { speed: 15, gravity: 7, fuse: 0.55, range: 30, closeRange: 4, nearPop: 2.5, fullMs: 2200, partialMs: 700, cooldown: 20 };
 export const DASH = { distance: 7, time: 0.2, cooldown: 12 };
 

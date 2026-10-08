@@ -149,8 +149,11 @@ net.on('start', ({ seed, hostRole }) => {
 });
 net.on('bye', () => {
   lobby.partner = false;
-  // (the seeker opening the gift stays on it)
-  if (['puzzle', 'letter'].includes(screen())) return;
+  // (the seeker opening the gift stays on it; the hunter watching it has nothing left to watch)
+  if (['puzzle', 'letter'].includes(screen())) {
+    if (myRole() === 'hunter') { leaveToMenu(); toast('The other player left'); }
+    return;
+  }
   if (match) endMatch();
   if (lobby.host) {
     toast('The other player left');
@@ -248,32 +251,54 @@ if (import.meta.env.DEV) {
   net.on('devduel', () => startDuel());
 }
 
-// the gift: the seeker puts the pieces together and reads the message; the hunter waits
+// the gift: the seeker puts the pieces together, opens the card and scratches it; the hunter
+// watches it all happen live, on the same puzzle and card (gift.js: her screen sends what she
+// does, his replays it)
 let closePuzzle = null;
+// the hunter's view: { puzzle, card } once open; messages that come before are kept until then
+const giftView = { puzzle: null, card: null, early: [] };
 function openGift() {
   if (FRIENDS) return; // (no gift in this edition: none of it is in its build)
   endMatch();
+  const send = (type, data) => net.send(type, data);
   if (myRole() === 'seeker') {
     show('puzzle');
     openPuzzle({
+      send,
       onDone: () => net.send('gift', { stage: 'done' }),
       onRead: () => {
         show('letter');
+        net.send('gc-open', {});
         openCard({
+          send,
           onFlip: () => net.send('gift', { stage: 'read' }),
           onScratched: () => { audio.play('roundWin'); net.send('gift', { stage: 'scratched' }); },
         });
       },
     }).then((close) => { closePuzzle = close; });
   } else {
-    $('#gw-note').textContent = `She is putting the ${PAGES} pieces together…`;
-    show('gift-wait');
+    Object.assign(giftView, { puzzle: null, card: null, early: [] });
+    show('puzzle');
+    openPuzzle({ watch: true }).then((view) => {
+      giftView.puzzle = view;
+      closePuzzle = view.close;
+      for (const [type, d] of giftView.early.splice(0)) watchGift(type, d);
+    });
   }
 }
-if (!FRIENDS) net.on('gift', ({ stage }) => {
-  if (screen() !== 'gift-wait') return;
-  $('#gw-note').textContent = stage === 'scratched' ? 'She scratched it off: she knows!' : stage === 'read' ? 'She is reading the message.' : 'The picture is whole. Now the card…';
-});
+// (hunter) her moves, onto my copy
+function watchGift(type, d) {
+  if (!['puzzle', 'letter'].includes(screen())) return;
+  if (type === 'gc-open') {
+    show('letter');
+    giftView.card = openCard({ watch: true });
+    return;
+  }
+  const view = type.startsWith('gp') ? giftView.puzzle : giftView.card;
+  if (!view) { giftView.early.push([type, d]); return; }
+  view.apply(type, d);
+}
+if (!FRIENDS) for (const type of ['gp-order', 'gp', 'gp-up', 'gc-open', 'gc-flip', 'gs', 'gc-done']) net.on(type, (d) => { if (myRole() === 'hunter') watchGift(type, d); });
 
 // --- dropped connections: the round pauses for both players until everyone's back ------
 const WAIT_MS = 60000; // give up on a dropped player after this long

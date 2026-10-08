@@ -325,7 +325,17 @@ export const audio = {
     ambient.danger = k;
     const t = ctx.currentTime;
     drone.gain.setTargetAtTime(k * k * 0.16, t, 0.4);
-    crickets.gain.setTargetAtTime(Math.max(0, 1 - k * 1.6), t, 0.6);
+    if (ctx.currentTime >= (ambient.hushUntil ?? 0)) crickets.gain.setTargetAtTime(Math.max(0, 1 - k * 1.6), t, 0.6);
+  },
+
+  // a scare: the crickets stop dead for `seconds`, then come back
+  hush(seconds) {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    ambient.hushUntil = t + seconds;
+    crickets.gain.cancelScheduledValues(t);
+    crickets.gain.setTargetAtTime(0, t, 0.03);
+    crickets.gain.setTargetAtTime(Math.max(0, 1 - ambient.danger * 1.6), t + seconds, 1.2);
   },
 
   // a footstep (settings.steps is its volume; faster is a little louder). heavy: Slender's, the
@@ -406,14 +416,15 @@ export const audio = {
 
   // a sound file in public/ (loaded once, then kept); played through the master volume. If the
   // file can't be loaded, `fallback` (a named sound) plays instead.
-  async file(url, vol = 1, fallback = null) {
+  // at: optionally placed in the world ({ dist, pan }), like play()
+  async file(url, vol = 1, fallback = null, at = null) {
     if (!ctx) return;
     const t = ctx.currentTime;
     const buf = await loadFile(url);
-    if (!buf) { if (fallback) this.play(fallback, null, vol); return; }
+    if (!buf) { if (fallback) this.play(fallback, at, vol); return; }
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.connect(out(null, vol));
+    src.connect(out(at, vol));
     // (if it took a moment to load the first time, it still starts right away)
     src.start(Math.max(t, ctx.currentTime));
   },

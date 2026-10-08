@@ -10,6 +10,7 @@ import { settings } from './settings.js';
 import { createMinimap, SCAN_SHOW, SCAN_COLOR } from './minimap.js';
 import { crouchK } from './player.js';
 import { rng } from './world/noise.js';
+import { createScares } from './scares.js';
 import { actionFor, key, label, mouseCode } from './keys.js';
 import { SEEKER, HUNTER, PAGES, MESSAGE, NET_HZ, MAP, GUN, DART, PAGE_HINT, FLASH, DASH, TELEPORT, EYE, DREAD, GRAB, LIGHT, SCARE, PAGE_ZONES, RUSH } from './config.js';
 
@@ -149,6 +150,8 @@ export class Match {
     addXray(this.remote);
     if (role === 'seeker') addShield(this.remote, GUN.headCenter + GUN.headRadius);
     engine.scene.add(this.remote);
+    // the seeker's nerves: the flashlight acting up, and fake scares (scares.js)
+    this.nerves = role === 'seeker' ? createScares({ engine, world, player, flashlight }) : null;
 
     // the hunter sees in the dark (dimly); the seeker relies on the flashlight
     this.saved = { hemi: engine.hemi.intensity, moon: engine.moon.intensity, sat: engine.film.uniforms.uSaturation.value };
@@ -205,7 +208,10 @@ export class Match {
       if (role === 'seeker') {
         if (a === 'shoot') this.shoot();
         if (a === 'reload') this.reload();
-        if (a === 'light') { flashlight.on = !flashlight.on; audio.click(); }
+        if (a === 'light') {
+          if (this.nerves?.blackout) audio.play('deny'); // (it's dying on its own: no switching it meanwhile)
+          else { flashlight.on = !flashlight.on; audio.click(); }
+        }
         if (a === 'take') this.tryTake();
         if (a === 'dart') this.useDart();
         if (a === 'flash') this.useFlash();
@@ -283,6 +289,7 @@ export class Match {
     if (this.tpCast) this.tpCast.until += gap;
     if (this.rushUntil) this.rushUntil += gap;
     for (const s of this.scans) s.at += gap;
+    this.nerves?.shift(gap);
     if (this.cdT) this.cdT += gap; // (the cooldowns don't count the pause)
     this.lastPageAt += gap;
     if (this.pageReveal) this.pageReveal.until += gap;
@@ -332,6 +339,8 @@ export class Match {
       const el = $('#page-text');
       el.textContent = MESSAGE[n - 1] ?? '';
       if (el.textContent) flash(el, 4500);
+      // (sometimes he's right behind you; not after the last page: the round's over)
+      if (this.found < PAGES) this.nerves?.onPage({ calm: this.calm, hunterDist: this.hunterDist() });
     }
     if (this.found >= PAGES) this.finish('pages', mine);
   }
@@ -467,11 +476,20 @@ export class Match {
   showPageZones() {
     this.zonesShown = true;
     const r = PAGE_ZONES.radius;
+    // (its middle at least PAGE_ZONES.inside in from the fence, so more than half of it is on the map:
+    // a spot that's too far out is drawn again; if none fits, the one nearest the middle of the map)
+    const maxOut = MAP.play - PAGE_ZONES.inside;
     for (const p of this.pages) {
       if (p.taken) continue;
       const rand = rng(this.seed * 977 + p.n * 131 + 7);
-      const a = rand() * Math.PI * 2, d = Math.sqrt(rand()) * PAGE_ZONES.offset * r;
-      p.zone = { x: p.pos.x + Math.cos(a) * d, z: p.pos.z + Math.sin(a) * d, r };
+      let best = null;
+      for (let i = 0; i < 40; i++) {
+        const a = rand() * Math.PI * 2, d = Math.sqrt(rand()) * PAGE_ZONES.offset * r;
+        const c = { x: p.pos.x + Math.cos(a) * d, z: p.pos.z + Math.sin(a) * d };
+        if (Math.hypot(c.x, c.z) <= maxOut) { best = c; break; }
+        if (!best || Math.hypot(c.x, c.z) < Math.hypot(best.x, best.z)) best = c;
+      }
+      p.zone = { ...best, r };
     }
     const left = this.pages.filter((p) => !p.taken).length;
     const what = left === 1 ? 'The last page is' : `The ${left} missing pages are`;
@@ -766,6 +784,11 @@ export class Match {
 
   // seeker: grabbed: his face, right up close, for SCARE.ms; then (unless it's the last grab)
   // the fight to break free
+  // (the seeker's nerves, scares.js) may the flashlight act up or a fake scare start: not during a
+  // grab, the jumpscare or once the round's over
+  get calm() { return !this.over && !this.grab && !this.scare; }
+  hunterDist(rs = this.remoteState()) { return rs ? Math.hypot(rs.x - this.player.pos.x, rs.z - this.player.pos.z) : Infinity; }
+
   startScare(last = false) {
     if (this.role !== 'seeker') return;
     // (the last grab: it lasts until the round ends)
@@ -1143,6 +1166,7 @@ export class Match {
 
     if (this.role === 'seeker') {
       this.updateDread(dt, rs);
+      this.nerves.update(dt, time, { calm: this.calm, dread: this.dread, hunterDist: this.hunterDist(rs) });
       // the dart can find pages now: say so once
       if (!this.hintShown && !this.over && t - this.lastPageAt >= PAGE_HINT.afterMs) {
         this.hintShown = true;
@@ -1268,6 +1292,7 @@ export class Match {
       p.glow?.children.forEach((o) => o.material.dispose());
     }
     this.engine.scene.remove(this.remote, this.marker);
+    this.nerves?.dispose();
     this.effects.clear();
     const film = this.engine.film.uniforms;
     film.uFlash.value = 0; film.uTint.value = 0; film.uStatic.value = 0;

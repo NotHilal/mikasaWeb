@@ -9,6 +9,9 @@
 // Local events (not sent by the other player): 'link' { up } when our own connection drops
 // or comes back, 'peer' { here } when the other player connects or drops.
 // Dev-only: ?localnet uses BroadcastChannel instead (tabs of one browser, no relay).
+// The friends edition tells the relay so (?ed=friends): its rooms are kept apart from the gift
+// edition's, so a code from one site can't be joined from the other.
+import { FRIENDS } from './config.js';
 
 const LOCAL = import.meta.env.DEV && new URLSearchParams(location.search).has('localnet');
 const RELAY = LOCAL ? null
@@ -46,7 +49,7 @@ function relayTransport(first) {
   const ready = new Promise((resolve, reject) => { settle = { resolve, reject }; });
 
   const connect = () => {
-    ws = new WebSocket(`${RELAY}?id=${id}`);
+    ws = new WebSocket(`${RELAY}?id=${id}${FRIENDS ? '&ed=friends' : ''}`);
     ws.onopen = () => {
       retry = 0;
       // after a reconnect, rejoin the room we were in

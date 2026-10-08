@@ -12,6 +12,9 @@
 // Everything else is forwarded as-is to the other socket(s) in the room.
 // Rooms survive for a while after everyone drops, so players can reconnect
 // with the same code after a network blip.
+// Editions: each site says which one it is when it connects (?ed=friends; no `ed`: the gift
+// edition, which never sends one). Each edition has its own rooms: a code from one site isn't
+// found from the other, so the two versions never end up in the same game.
 import { WebSocketServer } from 'ws';
 import { createServer } from 'node:http';
 
@@ -22,16 +25,21 @@ const MAX_MSG_BYTES = 4096;
 const MAX_MSGS_PER_SEC = 80;
 const LETTERS = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
-const rooms = new Map(); // code -> { sockets: Set, emptySince: number|null }
+const rooms = new Map(); // key (see roomKey) -> { sockets: Set, emptySince: number|null }
 
-function newCode() {
+// where a room is kept: the code itself for the gift edition (as it always was), with the edition
+// in front for the others. Players only ever see the 4-letter code.
+const roomKey = (ws, code) => (ws.edition === 'gift' ? code : `${ws.edition}:${code}`);
+
+function newCode(ws) {
   for (let i = 0; i < 1000; i++) {
     const code = Array.from({ length: 4 }, () => LETTERS[Math.floor(Math.random() * LETTERS.length)]).join('');
-    if (!rooms.has(code)) return code;
+    if (!rooms.has(roomKey(ws, code))) return code;
   }
   throw new Error('no free room codes');
 }
 
+// (code here is the room's key)
 function enter(ws, code) {
   const room = rooms.get(code);
   // replace a stale socket of the same client (reconnect before the old one timed out)
@@ -64,7 +72,9 @@ const wss = new WebSocketServer({ server: http, maxPayload: MAX_MSG_BYTES });
 
 wss.on('connection', (ws, req) => {
   ws.alive = true;
-  ws.clientId = new URL(req.url, 'http://x').searchParams.get('id')?.slice(0, 32) || null;
+  const params = new URL(req.url, 'http://x').searchParams;
+  ws.clientId = params.get('id')?.slice(0, 32) || null;
+  ws.edition = params.get('ed') === 'friends' ? 'friends' : 'gift';
   ws.budget = MAX_MSGS_PER_SEC;
   ws.on('pong', () => { ws.alive = true; });
 
@@ -74,19 +84,19 @@ wss.on('connection', (ws, req) => {
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg && msg.$) {
       if (msg.$ === 'create') {
-        const code = newCode();
-        rooms.set(code, { sockets: new Set(), emptySince: null });
-        enter(ws, code);
+        const code = newCode(ws), key = roomKey(ws, code);
+        rooms.set(key, { sockets: new Set(), emptySince: null });
+        enter(ws, key);
         send(ws, { $: 'created', room: code });
       } else if (msg.$ === 'join') {
-        const code = String(msg.room || '').toUpperCase().slice(0, 8);
-        if (!rooms.has(code)) {
+        const code = String(msg.room || '').toUpperCase().slice(0, 8), key = roomKey(ws, code);
+        if (!rooms.has(key)) {
           if (!msg.rejoin || !/^[A-Z]{4}$/.test(code)) return send(ws, { $: 'error', msg: `No room called ${code}` });
-          rooms.set(code, { sockets: new Set(), emptySince: null });
+          rooms.set(key, { sockets: new Set(), emptySince: null });
         }
-        if (ws.room !== code) leave(ws);
-        if (!enter(ws, code)) return send(ws, { $: 'error', msg: `Room ${code} is full` });
-        send(ws, { $: 'joined', room: code, peers: rooms.get(code).sockets.size - 1 });
+        if (ws.room !== key) leave(ws);
+        if (!enter(ws, key)) return send(ws, { $: 'error', msg: `Room ${code} is full` });
+        send(ws, { $: 'joined', room: code, peers: rooms.get(key).sockets.size - 1 });
       }
       return;
     }

@@ -381,6 +381,22 @@ export class Duel {
     this.renderHud();
   }
 
+  // how far off the next shot can go (radians): nothing standing still, more moving, most in the air
+  spread() {
+    const p = this.player, s = DUEL.spread;
+    const moving = Math.min(1, Math.hypot(p.vel.x, p.vel.z) / DUEL.move.walk) * (p.quiet ? s.quiet : 1) * (p.crouch > 0.5 ? s.crouch : 1);
+    return THREE.MathUtils.degToRad(s.move * moving + (p.air > 0.05 ? s.air : 0));
+  }
+
+  // dir turned off course by up to `spread`, in a random direction (any spot in the cone as likely)
+  aimed(dir, spread) {
+    if (spread <= 0) return dir;
+    const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)).normalize();
+    const up = new THREE.Vector3().crossVectors(right, dir).normalize();
+    const a = Math.random() * Math.PI * 2, r = Math.tan(spread) * Math.sqrt(Math.random());
+    return dir.clone().addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r).normalize();
+  }
+
   shoot() {
     const t = now();
     if (this.phase !== 'live' || this.dead || this.pausedAt || t - this.lastShot < DUEL.fireMs) return;
@@ -391,7 +407,8 @@ export class Duel {
     this.viewmodel.recoil();
     if (this.ammo === 0) this.reload();
     audio.play('shot');
-    const origin = this.engine.camera.position.clone(), dir = this.player.forward;
+    // (off by up to the spread, any way round, while moving or in the air)
+    const origin = this.engine.camera.position.clone(), dir = this.aimed(this.player.forward, this.spread());
     this.player.pitch = Math.min(1.45, this.player.pitch + 0.012); // a little kick, after the shot
     const wall = this.arena.world.colliders.hit(origin, origin.clone().addScaledVector(dir, DUEL.range));
     let endDist = wall === null ? DUEL.range : wall * DUEL.range;
@@ -587,6 +604,11 @@ export class Duel {
     player.lift = this.dead ? -THREE.MathUtils.smoothstep(t - this.deadAt, 0, 500) * (player.stats.eye - 0.45) : 0;
     player.update(dt);
 
+    // the crosshair opens up as wide as the spread (where a shot could land, on screen)
+    const cam = engine.camera;
+    const gap = 4 + (Math.tan(this.spread()) / Math.tan(THREE.MathUtils.degToRad(cam.fov / 2))) * (innerHeight / 2);
+    if (Math.abs(gap - (this.chGap ?? 4)) > 0.5) { this.chGap = gap; document.querySelector('.crosshair')?.style.setProperty('--gap', `${gap.toFixed(1)}px`); }
+
     // reloading (R, or by itself once empty): full again when it's done
     if (this.reloadUntil) {
       const fill = document.getElementById('reload-fill');
@@ -630,6 +652,7 @@ export class Duel {
 
   dispose() {
     this.off.forEach((f) => f());
+    document.querySelector('.crosshair')?.style.removeProperty('--gap'); // (back to the woods' tight crosshair)
     removeEventListener('keydown', this.onKey);
     removeEventListener('mousedown', this.onMouse);
     removeEventListener('contextmenu', this.onContext);

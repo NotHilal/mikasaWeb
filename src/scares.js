@@ -1,9 +1,9 @@
 // The seeker's nerves, on his screen only (nothing here changes the game, and the hunter sees
 // none of it except the flashlight going out, which is the real flashlight):
 // - the flashlight acting up: a flicker, then dark for a moment (FLICKER);
-// - fake scares now and then (SCARES): Slender glimpsed between the trees, the whisper from
-//   behind, the crickets stopping dead, a burst of static; and after taking a page, sometimes,
-//   Slender standing right behind you until you turn round.
+// - fake scares now and then (SCARES): Slender glimpsed between the trees, the whisper, the
+//   crickets stopping dead; and after taking a page, sometimes, Slender standing right behind you
+//   until you turn round.
 // Created by the match for the seeker; update() every frame, onPage() when he takes a page.
 import * as THREE from 'three';
 import { audio } from './audio.js';
@@ -25,9 +25,7 @@ export function createScares({ engine, world, player, flashlight }) {
   let scareNext = t0 + Math.max(SCARES.first, rand(SCARES.min, SCARES.max)) * 1000;
   let blackout = null; // { start, toggles: [ms…] }
   let shown = null;    // the phantom on show: { kind: 'sight' | 'behind', until }
-  let glitchUntil = 0;
 
-  const film = engine.film.uniforms;
   const place = (x, z) => {
     phantom.position.set(x, world.heightAt(x, z), z);
     phantom.rotation.y = Math.atan2(-(player.pos.x - x), -(player.pos.z - z)); // (facing me)
@@ -35,19 +33,18 @@ export function createScares({ engine, world, player, flashlight }) {
   const hide = () => { phantom.visible = false; shown = null; };
   const whisper = () => audio.file(SCARES.whisper, SCARES.whisperVol, null, { dist: 1.2, pan: Math.random() < 0.5 ? -0.8 : 0.8 });
 
-  // one of the fakes, at random
+  // one of the fakes, at random (SCARES.kinds: how likely each is)
   function scare(t) {
-    const kind = ['sight', 'whisper', 'silence', 'glitch'][Math.floor(Math.random() * 4)];
+    let roll = Math.random() * Object.values(SCARES.kinds).reduce((a, b) => a + b, 0), kind = 'sight';
+    for (const [k, w] of Object.entries(SCARES.kinds)) { if ((roll -= w) <= 0) { kind = k; break; } }
     if (kind === 'sight') {
-      // somewhere ahead, a little to one side, between the trees
-      const a = player.yaw + rand(-0.45, 0.45), d = rand(...SCARES.sightDist);
+      // right ahead, close, between the trees
+      const a = player.yaw + rand(-0.25, 0.25), d = rand(...SCARES.sightDist);
       place(player.pos.x - Math.sin(a) * d, player.pos.z - Math.cos(a) * d);
       phantom.visible = true;
       shown = { kind: 'sight', until: t + SCARES.sightMs };
-      film.uStatic.value = Math.max(film.uStatic.value, 0.55);
     } else if (kind === 'whisper') whisper();
-    else if (kind === 'silence') audio.hush(SCARES.silenceMs / 1000);
-    else glitchUntil = t + SCARES.glitchMs;
+    else audio.hush(SCARES.silenceMs / 1000);
   }
 
   return {
@@ -93,19 +90,17 @@ export function createScares({ engine, world, player, flashlight }) {
         place(phantom.position.x, phantom.position.z); // (keep facing me)
         phantom.userData.animate?.(dt, 0, time, {});
         if (shown.kind === 'behind') {
-          // turned round to look at him: a jolt of static and the whisper, then he's gone
+          // turned round to look at him: the whisper, and a moment later he's gone
           const to = phantom.position.clone().setY(player.pos.y).sub(player.pos).normalize();
           const fwd = player.forward.setY(0).normalize();
           if (!shown.seen && to.dot(fwd) > Math.cos(THREE.MathUtils.degToRad(30))) {
             shown.seen = true;
-            shown.until = t + 260;
-            film.uStatic.value = Math.max(film.uStatic.value, 0.8);
+            shown.until = t + 400;
             whisper();
           }
         }
         if (t >= shown.until) hide();
       }
-      if (t < glitchUntil) film.uStatic.value = Math.max(film.uStatic.value, 0.5 + Math.random() * 0.4);
     },
 
     // the seeker took a page: sometimes, Slender is right behind him
@@ -119,7 +114,7 @@ export function createScares({ engine, world, player, flashlight }) {
 
     // the round was frozen for `gap` ms (a dropped player): push every timer back
     shift(gap) {
-      flickerNext += gap; scareNext += gap; glitchUntil += gap;
+      flickerNext += gap; scareNext += gap;
       if (blackout) blackout.start += gap;
       if (shown) shown.until += gap;
     },

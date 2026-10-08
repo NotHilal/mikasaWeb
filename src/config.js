@@ -59,15 +59,17 @@ export const FLICKER = { first: 60, min: 60, max: 180, nearFaster: 2, flickerMs:
 // Fake scares for the seeker (only he sees and hears them; they change nothing in the game), one
 // every `min`..`max` seconds at random, never in the first `first` seconds, during a grab, or when
 // the real hunter is closer than `safeDist` metres (so a fake is never mistaken for him, or him for a
-// fake). One of: a sighting (Slender between the trees `sightDist` metres off, for `sightMs`), the
-// whisper (`whisper`, from behind, to one side), a sudden silence (the crickets stop for
-// `silenceMs`), a burst of static (`glitchMs`). And after taking a page, `behindChance` of the time,
-// Slender stands right behind you (`behindDist` m) until you turn round, or `behindMs` goes by.
+// fake). One of (chances in `kinds`): a sighting (Slender between the trees `sightDist` metres off,
+// right ahead, for `sightMs`), the whisper (`whisper`, from one side), a sudden silence (the crickets
+// stop for `silenceMs`). And after taking a page, `behindChance` of the time, Slender stands right
+// behind you (`behindDist` m) until you turn round (then the whisper), or `behindMs` goes by.
 export const SCARES = {
   first: 120, min: 90, max: 180, safeDist: 30,
-  sightDist: [16, 28], sightMs: 550,
-  whisper: 'sounds/whisper.mp3', whisperVol: 0.9,
-  silenceMs: 8000, glitchMs: 450,
+  kinds: { sight: 0.4, whisper: 0.4, silence: 0.2 },
+  sightDist: [8, 13], sightMs: 900,
+  // (the file is quiet, its loudest only 18% of full: this brings it up to about 70%)
+  whisper: 'sounds/whisper.mp3', whisperVol: 4,
+  silenceMs: 8000,
   behindChance: 0.35, behindDist: 6, behindMs: 7000,
 };
 
@@ -135,6 +137,10 @@ export const DUEL = {
   // the same for both. The jump (take-off speed, m/s) is much higher than in the woods: 2 m
   // (√(2 × 18 × 2)), so both can get up on the arena's 1.6 m blocks, not the taller pillars
   move: { walk: 5, jump: 8.49, quiet: true }, // (both can walk quietly in the duel)
+  // the aim drifts while you move or jump (standing still, it's spot on): up to `move` degrees off
+  // at full speed, `air` more in the air; walking quietly or crouching cut the moving part to
+  // `quiet` / `crouch` of it. The crosshair opens up to show it.
+  spread: { move: 3.5, air: 7, quiet: 0.35, crouch: 0.6 },
   hitbox: {
     seeker: { head: [1.64, 0.14], body: [0.95, 1.52, 0.25], legs: [0.05, 0.95, 0.2] },
     hunter: { head: [GUN.headCenter, GUN.headRadius], body: [1.3, GUN.bodyTop, GUN.bodyRadius], legs: [0.1, 1.3, 0.28] },

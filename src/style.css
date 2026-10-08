@@ -140,7 +140,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 .crosshair i { position: absolute; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7); }
 .ch-t, .ch-b { width: 2px; height: 6px; left: -1px; }
 .ch-l, .ch-r { width: 6px; height: 2px; top: -1px; }
-.ch-t { top: -10px; } .ch-b { top: 4px; } .ch-l { left: -10px; } .ch-r { left: 4px; }
+/* --gap: how far the lines sit from the middle (the duel opens it up while the aim is off, see duel.js) */
+.ch-t { top: calc(-6px - var(--gap, 4px)); } .ch-b { top: var(--gap, 4px); } .ch-l { left: calc(-6px - var(--gap, 4px)); } .ch-r { left: var(--gap, 4px); }
 
 .topbar { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; height: 46px; }
 .tb-side { display: flex; align-items: center; gap: 8px; padding: 0 16px; background: rgba(15, 25, 35, 0.65); font: 400 34px/1 var(--head); }

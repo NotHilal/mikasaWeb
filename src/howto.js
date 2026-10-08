@@ -269,7 +269,7 @@ function slides() {
     },
     {
       role: 'Hunter', name: 'Sprint', keys: [k('rush')],
-      text: `<b>${k('rush')}</b> runs ${RUSH.speed === 2 ? 'twice as fast' : `${RUSH.speed}× as fast`} for ${RUSH.time} s. The seeker hears you break into it. A stun ends it at once. ${RUSH.cooldown} s cooldown.`,
+      text: `<b>${k('rush')}</b> runs ${RUSH.speed === 2 ? 'twice as fast' : `${RUSH.speed}× as fast`} for ${RUSH.time} s. Everyone hears it, wherever they are on the map. A stun ends it at once. ${RUSH.cooldown} s cooldown.`,
       art: (() => {
         const d = 4;
         return wrap(`${trees([5, 9])}

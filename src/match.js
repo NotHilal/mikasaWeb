@@ -105,6 +105,7 @@ export class Match {
     this.pose = { grab: 0, struggle: 0, lift: 0, scare: 0, crouch: 0 }; // the other player's figure, smoothed
     this.scare = null; // the jumpscare, each time the seeker is grabbed: { start, until, light }
     if (role === 'seeker') audio.preload(SCARE.sound);
+    audio.preload(RUSH.sound); // (both hear the hunter's sprint)
     this.aiming = false;
     this.tpCount = 0;
     this.remoteTp = 0;
@@ -663,8 +664,8 @@ export class Match {
   // --- hunter: eye ------------------------------------------------------------------------
 
   // --- hunter: sprint ----------------------------------------------------------------------
-  // RUSH.speed × his walk for RUSH.time seconds; a stun or a grab ends it early. The seeker hears
-  // it start, where he is.
+  // RUSH.speed × his walk for RUSH.time seconds; a stun or a grab ends it early. Both players hear
+  // it start (RUSH.sound), as loud wherever they are.
   useRush() {
     if (this.cd.rush > 0 || this.stunned || this.tpCast || this.rushUntil) return audio.play('deny');
     if (this.aiming) this.cancelAim();
@@ -674,7 +675,7 @@ export class Match {
     this.engine.film.uniforms.uStatic.value = Math.max(this.engine.film.uniforms.uStatic.value, 0.25);
     this.fovKick = 1; // (a quick lunge of the view)
     this.send('fx', { k: 'rush', p: arr(this.player.pos) });
-    audio.play('rush');
+    audio.file(RUSH.sound, RUSH.volume, 'rush');
     this.renderHud();
   }
 
@@ -919,7 +920,7 @@ export class Match {
       case 'dash': this.effects.wind(v3(d.p), d.d ? v3(d.d) : new THREE.Vector3(0, 0, -1)); audio.play('dash', this.at(v3(d.p))); break;
       case 'eye': this.remoteEye = this.launchEye(v3(d.p), v3(d.d), false); audio.play('eye', this.at(v3(d.p))); break;
       case 'eyestop': this.remoteEye?.stop(v3(d.p)); this.remoteEye = null; break; // stopped early: at the hunter's spot
-      case 'rush': audio.play('rush', this.at(v3(d.p))); break; // (the seeker hears him start to run)
+      case 'rush': audio.file(RUSH.sound, RUSH.volume, 'rush'); break; // (the seeker hears him start to run, wherever Iso is)
       case 'tpcast':
         this.effects.tpWindup(v3(d.from), TELEPORT.castMs / 1000);
         this.effects.tpWindup(v3(d.to), TELEPORT.castMs / 1000);

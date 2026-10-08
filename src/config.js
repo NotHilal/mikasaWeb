@@ -130,8 +130,9 @@ export const DASH = { distance: 7, time: 0.2, cooldown: 12 };
 
 // Hunter
 export const TELEPORT = { range: 14, cooldown: 20, castMs: 1000 /* wind-up before he moves */, seekerView: 50 /* degrees */, seekerViewDist: 45 };
-// sprint: `speed` × his walk for `time` seconds. A stun (or a grab) ends it; the seeker hears it start.
-export const RUSH = { speed: 2, time: 3, cooldown: 25 };
+// sprint: `speed` × his walk for `time` seconds. A stun (or a grab) ends it. As it starts, `sound`
+// plays for both players, as loud wherever they are (no distance); without the file, a made-up one.
+export const RUSH = { speed: 2, time: 3, cooldown: 25, sound: 'sounds/run.mp3', volume: 1 };
 // eye: flies up to speed × flight metres (about 42 m); pressing Eye again while it flies stops it there
 export const EYE = { speed: 16, flight: 2.6, delay: 0.5, radius: 25, revealMs: 3000, cooldown: 40 };
 

@@ -1,5 +1,11 @@
 // Gameplay numbers in one place, so balancing doesn't mean hunting through files.
 
+// Which edition this build is (VITE_EDITION, set where it's built): the gift one (the default: the
+// final duel won by Iso opens the puzzle and the card), or 'friends': the same game, but the final
+// duel just ends in Victory or Defeat for whoever won, and none of the gift is in the build at all
+// (its pictures are left out too, see vite.config.js).
+export const FRIENDS = import.meta.env.VITE_EDITION === 'friends';
+
 export const MAP = {
   seed: 1337,      // the forest layout (same for every match)
   half: 85,        // the ground runs from -half to +half metres
@@ -17,12 +23,14 @@ export const PAGE_SPOTS = {
   height: 1.45,      // on a tree: how high up the trunk
 };
 // Placeholder text for the 7 parts of the message (shown when a page is picked up), one per page.
-export const MESSAGE = ['Part one', 'Part two', 'Part three', 'Part four', 'Part five', 'Part six', 'Part seven'];
+// (None in the friends edition.)
+export const MESSAGE = FRIENDS ? [] : ['Part one', 'Part two', 'Part three', 'Part four', 'Part five', 'Part six', 'Part seven'];
 // The gift at the very end (Iso wins the final duel): the seeker puts the 7 pieces of `image`
 // together. Without the image file, a placeholder picture says where to put it.
 // Then the card opens: `image` on the front; clicked, it turns over to `back`, where a scratch-off
 // over `scratchArea` hides `prize` (its lines: the first small, the second big, the third handwritten).
-export const GIFT = {
+// (The friends edition has no gift: GIFT is null there, so none of this ends up in its build.)
+export const GIFT = FRIENDS ? null : {
   image: 'gift/picture.jpg',   // in public/
   back: 'gift/back.jpg',       // in public/, the same size as `image`
   scratchArea: { left: 525, top: 564, width: 615, height: 261 }, // in `back`'s pixels: inside its red frame

@@ -16,7 +16,7 @@ import { Match } from './match.js';
 import { Duel, NAME } from './duel.js';
 import { openHowto, stepHowto, gotoHowto } from './howto.js';
 import { openPuzzle, openCard } from './gift.js';
-import { PAGES } from './config.js';
+import { PAGES, FRIENDS } from './config.js';
 import { net } from './net.js';
 import { audio } from './audio.js';
 import { settings, saveSettings } from './settings.js';
@@ -184,7 +184,8 @@ net.on('vote', ({ on }) => { if (!match) return; vote.theirs = !!on; checkVote()
 
 // --- the final duel ------------------------------------------------------------------------
 // At its end both vote again: Try again (Iso lost) or Continue (Iso won: the seeker opens the
-// gift). Main menu takes both players back to the menu.
+// gift). Main menu takes both players back to the menu. In the friends edition there's no gift:
+// whoever wins, it's Victory or Defeat, then Try again or Main menu.
 const dvote = { mine: false, theirs: false, kind: null };
 function startDuel() {
   endMatch();
@@ -197,15 +198,17 @@ function onDuelEnd({ winner, score, rounds }) {
   document.exitPointerLock();
   releaseKeys();
   const isoWon = winner === 'seeker', won = winner === myRole();
-  dvote.kind = isoWon ? 'continue' : 'again';
+  const gift = isoWon && !FRIENDS; // (only the gift edition has something to continue to)
+  dvote.kind = gift ? 'continue' : 'again';
   $('#de-title').textContent = won ? 'Victory' : 'Defeat';
-  $('#de-sub').textContent = `${NAME.seeker} ${isoWon ? 'wins' : 'lost'} the final duel · ${score.seeker} – ${score.hunter}`;
+  $('#de-sub').textContent = FRIENDS ? `${NAME[winner]} wins the final duel · ${score.seeker} – ${score.hunter}`
+    : `${NAME.seeker} ${isoWon ? 'wins' : 'lost'} the final duel · ${score.seeker} – ${score.hunter}`;
   $('#de-rounds').innerHTML = rounds.map((w, i) => `<span class="${w}">Round ${i + 1} · ${NAME[w]}</span>`).join('');
   $('#duel-end').classList.toggle('win', won);
   $('#duel-end').classList.toggle('lose', !won);
-  $('#de-again').style.display = isoWon ? 'none' : '';
-  $('#de-menu').style.display = isoWon ? 'none' : '';
-  $('#de-continue').style.display = isoWon ? '' : 'none';
+  $('#de-again').style.display = gift ? 'none' : '';
+  $('#de-menu').style.display = gift ? 'none' : '';
+  $('#de-continue').style.display = gift ? '' : 'none';
   renderDuelVote();
   setTimeout(() => { if (match?.over) show('duel-end'); }, 400);
 }
@@ -221,7 +224,7 @@ function renderDuelVote() {
 function checkDuelVote() {
   renderDuelVote();
   if (!(dvote.mine && dvote.theirs && match?.over)) return;
-  if (dvote.kind === 'again') startDuel();
+  if (dvote.kind === 'again' || FRIENDS) startDuel();
   else openGift();
 }
 net.on('dvote', ({ on }) => { if (!match?.over) return; dvote.theirs = !!on; checkDuelVote(); });
@@ -248,6 +251,7 @@ if (import.meta.env.DEV) {
 // the gift: the seeker puts the pieces together and reads the message; the hunter waits
 let closePuzzle = null;
 function openGift() {
+  if (FRIENDS) return; // (no gift in this edition: none of it is in its build)
   endMatch();
   if (myRole() === 'seeker') {
     show('puzzle');
@@ -266,7 +270,7 @@ function openGift() {
     show('gift-wait');
   }
 }
-net.on('gift', ({ stage }) => {
+if (!FRIENDS) net.on('gift', ({ stage }) => {
   if (screen() !== 'gift-wait') return;
   $('#gw-note').textContent = stage === 'scratched' ? 'She scratched it off: she knows!' : stage === 'read' ? 'She is reading the message.' : 'The picture is whole. Now the card…';
 });

@@ -328,9 +328,10 @@ export class Match {
     this.showCount();
     if (mine) {
       audio.page();
+      // its part of the message (the gift edition; the friends one has none)
       const el = $('#page-text');
       el.textContent = MESSAGE[n - 1] ?? '';
-      flash(el, 4500);
+      if (el.textContent) flash(el, 4500);
     }
     if (this.found >= PAGES) this.finish('pages', mine);
   }

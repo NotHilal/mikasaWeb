@@ -323,6 +323,12 @@ export class Match {
     this.takePage(p.n, true);
   }
 
+  // is this the page inside the cabin (on its back wall: the cabin's second page spot)
+  inCabin(p) {
+    const inside = this.world.landmarks.find((l) => l.name === 'cabin')?.spots[1];
+    return !!inside && inside.pos.distanceTo(p.pos) < 0.05;
+  }
+
   takePage(n, mine) {
     const p = this.pages.find((q) => q.n === n);
     if (!p || p.taken || this.over) return;
@@ -339,8 +345,9 @@ export class Match {
       const el = $('#page-text');
       el.textContent = MESSAGE[n - 1] ?? '';
       if (el.textContent) flash(el, 4500);
-      // (sometimes he's right behind you; not after the last page: the round's over)
-      if (this.found < PAGES) this.nerves?.onPage({ calm: this.calm, hunterDist: this.hunterDist() });
+      // (sometimes he's right behind you, always after the page in the cabin; not after the last
+      // page: the round's over)
+      if (this.found < PAGES) this.nerves?.onPage({ calm: this.calm, hunterDist: this.hunterDist(), always: this.inCabin(p) });
     }
     if (this.found >= PAGES) this.finish('pages', mine);
   }

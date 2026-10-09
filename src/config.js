@@ -62,8 +62,9 @@ export const FLICKER = { first: 60, min: 60, max: 180, nearFaster: 2, flickerMs:
 // fake). One of (chances in `kinds`): a sighting (Slender between the trees `sightDist` metres off,
 // right ahead, for `sightMs`), a sudden silence (the crickets stop for `silenceMs`). The whisper
 // (`whisper`, from one side) comes once a game, at a random moment between `whisperAt` seconds in
-// (put off a little if the hunter's near then). And after taking a page (every time: `behindChance`),
-// Slender stands right behind you (`behindDist` m) until you turn round, or `behindMs` goes by.
+// (put off a little if the hunter's near then). And after taking a page (`behindChance` of the
+// time; the page inside the cabin, every time), Slender stands right behind you (`behindDist` m)
+// until you turn round, or `behindMs` goes by.
 export const SCARES = {
   first: 120, min: 90, max: 180, safeDist: 30,
   kinds: { sight: 0.65, silence: 0.35 },
@@ -71,7 +72,7 @@ export const SCARES = {
   // (the file is quiet, its loudest only 18% of full: ×3 brings it up to about 55%)
   whisper: 'sounds/whisper.mp3', whisperVol: 3, whisperAt: [120, 600],
   silenceMs: 8000,
-  behindChance: 1, behindDist: 6, behindMs: 7000,
+  behindChance: 0.35, behindDist: 6, behindMs: 7000,
 };
 
 // Crouching (hold the key, both players): you stand `height` as tall (your view, how the other

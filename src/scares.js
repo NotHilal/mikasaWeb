@@ -106,9 +106,10 @@ export function createScares({ engine, world, player, flashlight }) {
       }
     },
 
-    // the seeker took a page: sometimes, Slender is right behind him
-    onPage({ calm, hunterDist }) {
-      if (!calm || shown || hunterDist <= SCARES.safeDist || Math.random() >= SCARES.behindChance) return;
+    // the seeker took a page: sometimes (always: every time, the cabin's page), Slender is right
+    // behind him
+    onPage({ calm, hunterDist, always = false }) {
+      if (!calm || shown || hunterDist <= SCARES.safeDist || (!always && Math.random() >= SCARES.behindChance)) return;
       const f = player.forward.setY(0).normalize();
       place(player.pos.x - f.x * SCARES.behindDist, player.pos.z - f.z * SCARES.behindDist);
       phantom.visible = true;

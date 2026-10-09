@@ -48,6 +48,7 @@ const FX = {
   recon: 'sounds/fx/recon.mp3', flash: 'sounds/fx/flash.mp3', dash: 'sounds/fx/dash.mp3',
   eye: 'sounds/fx/eye.mp3', tp: 'sounds/fx/tp.mp3', start1v1: 'sounds/fx/1v1start.mp3',
   behind: 'sounds/fx/behindyou.mp3', // (the cabin's page: right behind your head)
+  page: 'sounds/fx/page.mp3', // (a page taken)
 };
 const FX_LEVEL = 0.06, FX_PEAK = 0.9;
 const FX_BOOST = { tp: 1.5 }; // (the teleport: a bit stronger than the others)
@@ -400,8 +401,10 @@ export const audio = {
     }
   },
 
+  // a page taken: page.mp3 (FX); until it's loaded, or if it can't be, the made-up one below
   page() {
     if (!ctx) return;
+    if (fx.page) { this.fx('page'); return; }
     const t = ctx.currentTime;
     // paper rustle
     const src = ctx.createBufferSource();

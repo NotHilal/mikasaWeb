@@ -337,11 +337,14 @@ export class Duel {
         if (this.host) this.decide(this.role);
       }),
       net.on('dround', (msg) => { if (!this.host) this.applyRound(msg); }),
+      net.on('dready', () => { if (this.phase !== 'ready') return; this.readyUp.theirs = true; this.renderBanner(true); this.checkReady(); }),
     );
 
-    // input: only the Classic (and inspecting it); moving and jumping are the player's
+    // input: only the Classic (and inspecting it); moving and jumping are the player's. Before the
+    // first round, a click (or Enter) is Ready
     const press = (code) => {
       if (!this.player.enabled || this.over || !document.pointerLockElement) return;
+      if (this.phase === 'ready') { if (code === key('shoot') || code === 'Enter') this.setReady(); return; }
       if (code === key('shoot')) this.shoot();
       else if (code === key('reload')) this.reload();
       else if (code === key('inspect')) this.viewmodel.inspect();
@@ -359,12 +362,32 @@ export class Duel {
     $('#ammo').style.display = '';
     hud(true);
     player.enabled = true;
-    this.between(DUEL.introMs, 0);
+    // the first round waits for both to be Ready (the rules stay up meanwhile), then counts down
+    this.phase = 'ready';
+    // (alone, with no room, as in testing: nobody else to wait for)
+    this.readyUp = { mine: false, theirs: !net.room, sentAt: 0 };
     this.respawn();
     this.renderBanner(true);
   }
 
   send(type, d = {}) { net.send(type, d); }
+
+  // (before the first round) I'm ready: the other screen is told; once both are, the countdown
+  setReady() {
+    if (this.readyUp.mine) return;
+    this.readyUp.mine = true;
+    this.readyUp.sentAt = now();
+    this.send('dready', {});
+    audio.play('ready');
+    this.renderBanner(true);
+    this.checkReady();
+  }
+
+  checkReady() {
+    if (this.phase !== 'ready' || !this.readyUp.mine || !this.readyUp.theirs) return;
+    this.between(DUEL.introMs, 0);
+    this.renderBanner(true);
+  }
 
   // where a sound at `pos` is, relative to my ears
   at(pos) {
@@ -587,10 +610,15 @@ export class Duel {
     this.lastCount = count;
     let html;
     if (!this.rounds.length) {
+      // the rules, and before the countdown, Ready for each
+      const r = this.readyUp, them = NAME[this.other];
+      const ready = this.phase !== 'ready' ? `<div class="db-count">${count || ''}</div>`
+        : `<div class="db-ready"><div class="db-ready-btn ${r.mine ? 'on' : ''}">${r.mine ? 'Ready ✓' : 'Ready'}</div>
+          <div class="db-ready-note">${!r.mine ? `Click when you're ready${r.theirs ? ` · <b>${them} is ready</b>` : ''}` : r.theirs ? 'Starting…' : `Waiting for ${them}…`}</div></div>`;
       html = `<div class="eyebrow">Final duel</div><div class="db-title">Kill Contract</div>
         <div class="db-sub">Best of 5 · first to ${DUEL.firstTo} rounds · ${DUEL.hp} health</div>
         <div class="db-sub">${DUEL.damage.map((b, i) => `${i ? `Past ${DUEL.damage[i - 1].upTo} m` : `Up to ${b.upTo} m`}: head ${b.head} · body ${b.body} · legs ${b.legs}`).join('<br>')}</div>
-        <div class="db-count">${count || ''}</div>`;
+        ${ready}`;
     } else {
       const winner = this.rounds[this.rounds.length - 1], won = winner === this.role, s = this.stats;
       const last = this.phase === 'done';
@@ -633,7 +661,11 @@ export class Duel {
     const { player, engine } = this;
     const t = now(), film = engine.film.uniforms;
 
-    if (this.phase === 'between') {
+    if (this.phase === 'ready') {
+      // (say it again every second until the countdown starts, in case the other screen wasn't
+      // listening yet when it was first said)
+      if (this.readyUp.mine && t - this.readyUp.sentAt > 1000) { this.readyUp.sentAt = t; this.send('dready', {}); }
+    } else if (this.phase === 'between') {
       if (!this.respawned && t >= this.respawnAt) this.respawn();
       if (t >= this.nextAt) this.goLive();
       else this.renderBanner(false);

@@ -284,16 +284,21 @@ export async function buildWorld(scene, manager) {
     },
 
     // Choose where the round's pages go (see PAGE_SPOTS), from the round's seed so both screens
-    // agree: a few on landmarks, the rest on trees, spread out, away from `avoid` (the seeker's
-    // start). Returns [{ pos, face, n }]: where, which way the page faces, its number.
+    // agree: one always inside the cabin, a few more on landmarks, the rest on trees, spread out,
+    // away from `avoid` (the seeker's start). Returns [{ pos, face, n }]: where, which way the
+    // page faces, its number.
     pickPages(seed, avoid = null) {
       const pr = rng(seed);
       const chosen = [];
       let apart = PAGE_SPOTS.apart;
       const fits = (pos) => (!avoid || Math.hypot(pos.x - avoid.x, pos.z - avoid.z) > PAGE_SPOTS.fromSeeker)
         && chosen.every((c) => Math.hypot(pos.x - c.pos.x, pos.z - c.pos.z) > apart);
-      // landmarks: in a shuffled order, the first that fit
-      const order = sites.map((_, i) => i);
+      // one page is always inside the cabin, on its back wall (its second spot)
+      const cabin = sites.find((st) => st.name === 'cabin');
+      const inside = cabin?.spots[1];
+      if (inside) chosen.push({ pos: inside.pos.clone(), face: inside.face });
+      // other landmarks: in a shuffled order, the first that fit
+      const order = sites.map((_, i) => i).filter((i) => sites[i] !== cabin);
       for (let i = order.length - 1; i > 0; i--) { const j = pr.int(i + 1); [order[i], order[j]] = [order[j], order[i]]; }
       for (const si of order) {
         if (chosen.length >= Math.min(PAGE_SPOTS.landmarks, PAGES)) break;

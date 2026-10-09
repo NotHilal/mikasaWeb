@@ -698,10 +698,9 @@ export class Match {
     this.renderHud();
   }
 
-  // (both screens) run.mp3, then sprint2.mp3 right after it, as loud wherever you are
+  // (both screens) run.mp3, as loud wherever you are
   rushSound() {
     audio.file(RUSH.sound, RUSH.volume, 'rush');
-    setTimeout(() => { if (!this.over) audio.fx('sprint2'); }, RUSH.thenMs);
   }
 
   endRush() {

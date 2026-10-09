@@ -62,8 +62,8 @@ export const FLICKER = { first: 60, min: 60, max: 180, nearFaster: 2, flickerMs:
 // fake). One of (chances in `kinds`): a sighting (Slender between the trees `sightDist` metres off,
 // right ahead, for `sightMs`), a sudden silence (the crickets stop for `silenceMs`). The whisper
 // (`whisper`, from one side) comes once a game, at a random moment between `whisperAt` seconds in
-// (put off a little if the hunter's near then). And after taking a page, `behindChance` of the
-// time, Slender stands right behind you (`behindDist` m) until you turn round, or `behindMs` goes by.
+// (put off a little if the hunter's near then). And after taking a page (every time: `behindChance`),
+// Slender stands right behind you (`behindDist` m) until you turn round, or `behindMs` goes by.
 export const SCARES = {
   first: 120, min: 90, max: 180, safeDist: 30,
   kinds: { sight: 0.65, silence: 0.35 },
@@ -71,7 +71,7 @@ export const SCARES = {
   // (the file is quiet, its loudest only 18% of full: ×3 brings it up to about 55%)
   whisper: 'sounds/whisper.mp3', whisperVol: 3, whisperAt: [120, 600],
   silenceMs: 8000,
-  behindChance: 0.35, behindDist: 6, behindMs: 7000,
+  behindChance: 1, behindDist: 6, behindMs: 7000,
 };
 
 // Crouching (hold the key, both players): you stand `height` as tall (your view, how the other
@@ -132,7 +132,8 @@ export const DUEL = {
   reloadMs: 1750,    // reloads by itself once empty
   fireMs: 150,       // the fastest it fires (it's semi-automatic)
   range: 80,
-  introMs: 5000,     // the countdown before the first round
+  introMs: 3000,     // the countdown before the first round, once both players are ready (the rules
+                     // stay up until then: each clicks Ready)
   betweenMs: 5000,   // the recap and countdown between rounds
   endMs: 2500,       // after the deciding round, before the result screen
   // the same for both. The jump (take-off speed, m/s) is much higher than in the woods: 2 m
@@ -163,14 +164,13 @@ export const PAGE_HINT = { afterMs: 240000, revealMs: 5000 };
 // more than half of it is on the map. A circle goes once its page is taken.
 export const PAGE_ZONES = { afterMs: 10 * 60000, radius: 20, offset: 0.95, inside: 5 };
 export const FLASH = { speed: 15, gravity: 7, fuse: 0.55, range: 30, closeRange: 4, nearPop: 2.5, fullMs: 2200, partialMs: 700, cooldown: 20 };
-export const DASH = { distance: 7, time: 0.2, cooldown: 12 };
+export const DASH = { distance: 7, time: 0.2, cooldown: 20 };
 
 // Hunter
-export const TELEPORT = { range: 14, cooldown: 20, castMs: 1000 /* wind-up before he moves */, seekerView: 50 /* degrees */, seekerViewDist: 45 };
+export const TELEPORT = { range: 14, cooldown: 35, castMs: 1000 /* wind-up before he moves */, seekerView: 50 /* degrees */, seekerViewDist: 45 };
 // sprint: `speed` × his walk for `time` seconds. A stun (or a grab) ends it. As it starts, `sound`
 // plays for both players, as loud wherever they are (no distance); without the file, a made-up one.
-// Then, `thenMs` later (when run.mp3 is over), sprint2.mp3 (audio.js FX), the same way.
-export const RUSH = { speed: 2, time: 3, cooldown: 25, sound: 'sounds/run.mp3', volume: 1, thenMs: 640 };
+export const RUSH = { speed: 2, time: 3, cooldown: 60, sound: 'sounds/run.mp3', volume: 1 };
 // eye: flies up to speed × flight metres (about 42 m); pressing Eye again while it flies stops it there
 export const EYE = { speed: 16, flight: 2.6, delay: 0.5, radius: 25, revealMs: 3000, cooldown: 40 };
 

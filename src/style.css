@@ -401,6 +401,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: var(--navy);
 .db-title.lose { color: var(--red); }
 .db-sub { font: 600 14px var(--cond); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin: 6px 0 4px; }
 .db-count { font: 400 88px/1 var(--head); margin-top: 6px; min-height: 88px; }
+/* the first round: Ready, for each player, before the countdown */
+.db-ready { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 18px; }
+.db-ready-btn { font: 400 32px/1 var(--head); letter-spacing: 0.14em; padding: 14px 56px 10px; background: var(--red); color: #fff; clip-path: var(--cut); animation: go 1.4s ease-in-out infinite; }
+.db-ready-btn.on { background: transparent; color: var(--teal); box-shadow: inset 0 0 0 2px var(--teal); animation: none; }
+.db-ready-note { font: 600 13px var(--cond); letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); }
+.db-ready-note b { color: var(--teal); }
 .db-stats { display: grid; grid-template-columns: repeat(4, auto); justify-content: center; gap: 10px 28px; margin: 16px 0 6px; text-align: left; }
 .db-stats .stat .v { font-size: 34px; }
 .db-next { font: 600 14px var(--cond); letter-spacing: 0.22em; text-transform: uppercase; color: var(--muted); margin-top: 10px; }

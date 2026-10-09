@@ -32,7 +32,9 @@ export function createScares({ engine, world, player, flashlight }) {
     phantom.rotation.y = Math.atan2(-(player.pos.x - x), -(player.pos.z - z)); // (facing me)
   };
   const hide = () => { phantom.visible = false; shown = null; };
-  const whisper = () => audio.file(SCARES.whisper, SCARES.whisperVol, null, { dist: 1.2, pan: Math.random() < 0.5 ? -0.8 : 0.8 });
+  // the whisper: from one side, or (behind) right behind your head, close
+  const whisper = (behind = false) => audio.file(SCARES.whisper, SCARES.whisperVol, null,
+    behind ? { dist: 0.6, pan: rand(-0.15, 0.15) } : { dist: 1.2, pan: Math.random() < 0.5 ? -0.8 : 0.8 });
 
   // one of the fakes, at random (SCARES.kinds: how likely each is)
   function scare(t) {
@@ -107,8 +109,10 @@ export function createScares({ engine, world, player, flashlight }) {
     },
 
     // the seeker took a page: sometimes (always: every time, the cabin's page), Slender is right
-    // behind him
+    // behind him; the cabin's page also brings the whisper, right behind his head (on top of the
+    // once-a-game one)
     onPage({ calm, hunterDist, always = false }) {
+      if (always && calm) whisper(true);
       if (!calm || shown || hunterDist <= SCARES.safeDist || (!always && Math.random() >= SCARES.behindChance)) return;
       const f = player.forward.setY(0).normalize();
       place(player.pos.x - f.x * SCARES.behindDist, player.pos.z - f.z * SCARES.behindDist);

@@ -64,7 +64,8 @@ export const FLICKER = { first: 60, min: 60, max: 180, nearFaster: 2, flickerMs:
 // (`whisper`, from one side) comes once a game, at a random moment between `whisperAt` seconds in
 // (put off a little if the hunter's near then). And after taking a page (`behindChance` of the
 // time; the page inside the cabin, every time), Slender stands right behind you (`behindDist` m)
-// until you turn round, or `behindMs` goes by.
+// until you turn round, or `behindMs` goes by. The cabin's page also brings the whisper, right
+// behind your head, as you take it.
 export const SCARES = {
   first: 120, min: 90, max: 180, safeDist: 30,
   kinds: { sight: 0.65, silence: 0.35 },

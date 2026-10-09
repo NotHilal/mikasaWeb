@@ -222,6 +222,50 @@ function buildArena() {
   };
 }
 
+// The forest and its sky, hidden while we're in the arena: the scene's direct children that are
+// showing, but not its lights, the camera or the effects' particles (the duel uses those)
+const forestOf = (engine, effects) => {
+  const keep = new Set([engine.camera, effects.fx.points, effects.smoke.points]);
+  return engine.scene.children.filter((o) => o.visible && !o.isLight && !keep.has(o));
+};
+
+// While the game loads (main.js): an arena and an armed Slender are drawn once, with the scene
+// just as the duel sets it up (the forest hidden), so their shaders are compiled then and not the
+// moment the duel starts (that was a freeze of up to a couple of seconds, over the rules; shaders
+// depend on what else is in the scene, the lights left showing for one, so it has to be the same).
+// Their materials are kept, not disposed: disposing would let the compiled shaders go too.
+// The arena is built once and kept: every duel uses the same one (building it each time meant
+// sending all its shapes and textures to the graphics card again, a pause as the duel started)
+let theArena = null;
+const arenaOnce = () => (theArena ??= buildArena());
+
+export function prewarmDuel(engine, effects) {
+  const { scene, renderer, composer, camera } = engine;
+  const hidden = forestOf(engine, effects);
+  hidden.forEach((o) => { o.visible = false; });
+  const arena = arenaOnce();
+  const slender = hunterFigure(), iso = seekerFigure();
+  armHunter(slender);
+  slender.position.set(0, DUEL.arena.y, 0);
+  iso.position.set(2, DUEL.arena.y, 0);
+  // (their own little lights are off in the duel, so here too: lights showing change the shaders)
+  for (const f of [slender, iso]) f.traverse((o) => { if (o.isLight) o.visible = false; });
+  scene.add(arena.group, slender, iso);
+  // (for where the game really draws: the post-processing's buffer)
+  renderer.setRenderTarget(composer.readBuffer);
+  renderer.compile(scene, camera);
+  renderer.setRenderTarget(null);
+  // and draw it once from inside, so its shapes and textures are on the graphics card already
+  const cam = { pos: camera.position.clone(), quat: camera.quaternion.clone() };
+  camera.position.set(0, DUEL.arena.y + 1.7, DUEL.arena.apothem - 3);
+  camera.lookAt(0, DUEL.arena.y + 1.2, 0);
+  engine.render(0);
+  camera.position.copy(cam.pos);
+  camera.quaternion.copy(cam.quat);
+  scene.remove(arena.group, slender, iso);
+  hidden.forEach((o) => { o.visible = true; });
+}
+
 // --- the duel ------------------------------------------------------------------------------
 
 export class Duel {
@@ -244,10 +288,9 @@ export class Duel {
     this.reloadUntil = 0;
 
     // the arena, with the forest (and its sky) hidden while we're in it
-    this.arena = buildArena();
+    this.arena = arenaOnce();
     const scene = engine.scene;
-    const keep = new Set([engine.camera, effects.fx.points, effects.smoke.points]);
-    this.hidden = scene.children.filter((o) => o.visible && !o.isLight && !keep.has(o));
+    this.hidden = forestOf(engine, effects);
     this.hidden.forEach((o) => { o.visible = false; });
     scene.add(this.arena.group);
     this.saved = {
@@ -658,8 +701,7 @@ export class Duel {
     removeEventListener('contextmenu', this.onContext);
     clearTimeout(this.hmTimer);
     const { engine, player } = this, scene = engine.scene, s = this.saved;
-    scene.remove(this.remote, this.arena.group);
-    this.arena.dispose();
+    scene.remove(this.remote, this.arena.group); // (the arena itself is kept for the next duel)
     this.hidden.forEach((o) => { o.visible = true; });
     scene.fog.color.setHex(s.fog);
     scene.fog.density = s.density;

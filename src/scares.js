@@ -1,9 +1,9 @@
 // The seeker's nerves, on his screen only (nothing here changes the game, and the hunter sees
 // none of it except the flashlight going out, which is the real flashlight):
 // - the flashlight acting up: a flicker, then dark for a moment (FLICKER);
-// - fake scares now and then (SCARES): Slender glimpsed between the trees, the whisper, the
-//   crickets stopping dead; and after taking a page, sometimes, Slender standing right behind you
-//   until you turn round.
+// - fake scares now and then (SCARES): Slender glimpsed between the trees, the crickets stopping
+//   dead; the whisper, once a game; and after taking a page, sometimes, Slender standing right
+//   behind you until you turn round.
 // Created by the match for the seeker; update() every frame, onPage() when he takes a page.
 import * as THREE from 'three';
 import { audio } from './audio.js';
@@ -23,6 +23,7 @@ export function createScares({ engine, world, player, flashlight }) {
 
   let flickerNext = t0 + Math.max(FLICKER.first, rand(FLICKER.min, FLICKER.max)) * 1000;
   let scareNext = t0 + Math.max(SCARES.first, rand(SCARES.min, SCARES.max)) * 1000;
+  let whisperAt = t0 + rand(...SCARES.whisperAt) * 1000; // (once a game; 0 once it's been)
   let blackout = null; // { start, toggles: [ms…] }
   let shown = null;    // the phantom on show: { kind: 'sight' | 'behind', until }
 
@@ -43,8 +44,7 @@ export function createScares({ engine, world, player, flashlight }) {
       place(player.pos.x - Math.sin(a) * d, player.pos.z - Math.cos(a) * d);
       phantom.visible = true;
       shown = { kind: 'sight', until: t + SCARES.sightMs };
-    } else if (kind === 'whisper') whisper();
-    else audio.hush(SCARES.silenceMs / 1000);
+    } else audio.hush(SCARES.silenceMs / 1000);
   }
 
   return {
@@ -86,17 +86,20 @@ export function createScares({ engine, world, player, flashlight }) {
         if (hunterDist > SCARES.safeDist) scare(t);
         scareNext = t + rand(SCARES.min, SCARES.max) * 1000;
       }
+      // the whisper, once a game (if he's near when its moment comes, a little later)
+      if (whisperAt && t >= whisperAt && calm) {
+        if (hunterDist > SCARES.safeDist) { whisper(); whisperAt = 0; } else whisperAt = t + 20000;
+      }
       if (shown) {
         place(phantom.position.x, phantom.position.z); // (keep facing me)
         phantom.userData.animate?.(dt, 0, time, {});
         if (shown.kind === 'behind') {
-          // turned round to look at him: the whisper, and a moment later he's gone
+          // turned round to look at him: a moment later he's gone
           const to = phantom.position.clone().setY(player.pos.y).sub(player.pos).normalize();
           const fwd = player.forward.setY(0).normalize();
           if (!shown.seen && to.dot(fwd) > Math.cos(THREE.MathUtils.degToRad(30))) {
             shown.seen = true;
             shown.until = t + 400;
-            whisper();
           }
         }
         if (t >= shown.until) hide();
@@ -115,6 +118,7 @@ export function createScares({ engine, world, player, flashlight }) {
     // the round was frozen for `gap` ms (a dropped player): push every timer back
     shift(gap) {
       flickerNext += gap; scareNext += gap;
+      if (whisperAt) whisperAt += gap;
       if (blackout) blackout.start += gap;
       if (shown) shown.until += gap;
     },

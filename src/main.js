@@ -13,7 +13,7 @@ import { hunterFigure, seekerFigure, addXray } from './figures.js';
 import { renderRolePortraits } from './portraits.js';
 import { drawRecap, recapStats } from './recap.js';
 import { Match } from './match.js';
-import { Duel, NAME } from './duel.js';
+import { Duel, NAME, prewarmDuel } from './duel.js';
 import { openHowto, stepHowto, gotoHowto } from './howto.js';
 import { openPuzzle, openCard } from './gift.js';
 import { PAGES, FRIENDS } from './config.js';
@@ -47,8 +47,8 @@ const effects = new Effects(engine.scene, world, () => engine.scale);
 // the page handwriting is drawn on canvases, so its font must be loaded first
 await Promise.all([loaded, document.fonts.load('64px "Caveat"'), document.fonts.ready]);
 // Compile every shader once now, so nothing stalls later: what's in the world, plus what a round
-// adds (both characters and their x-ray copies, a page, the hunter's grabbing arms), drawn once
-// out of sight and taken away again.
+// adds (both characters and their x-ray copies, a page, the hunter's grabbing arms), and the final
+// duel's arena and armed Slender, drawn once out of sight and taken away again.
 function prewarm() {
   const extra = [hunterFigure(), seekerFigure()].map((f) => {
     addXray(f);
@@ -59,12 +59,19 @@ function prewarm() {
   });
   const pages = world.placePages(world.pickPages(1));
   hunterArms.update(0, engine.camera, 1, 0);
-  engine.renderer.compile(engine.scene, engine.camera);
-  engine.renderer.compile(engine.viewScene, engine.camera);
+  // (compiled for where the game really draws, the post-processing's buffer: shaders drawn
+  // straight to the screen come out slightly different, and would be compiled all over again)
+  const { renderer, composer } = engine;
+  renderer.setRenderTarget(composer.readBuffer);
+  renderer.compile(engine.scene, engine.camera);
+  renderer.compile(engine.viewScene, engine.camera);
+  renderer.setRenderTarget(null);
   engine.render(0); // (and their shadows)
   engine.scene.remove(...extra);
   for (const p of pages) { engine.scene.remove(p.mesh); p.mesh.material.map.dispose(); p.mesh.material.dispose(); }
   hunterArms.update(0, engine.camera, 0, 0);
+  // and the final duel's arena, in the scene as the duel has it
+  prewarmDuel(engine, effects);
 }
 prewarm();
 viewmodel.visible = false;
@@ -192,6 +199,7 @@ net.on('vote', ({ on }) => { if (!match) return; vote.theirs = !!on; checkVote()
 const dvote = { mine: false, theirs: false, kind: null };
 function startDuel() {
   endMatch();
+  audio.fx('start1v1'); // (both agreed: the final duel starts, on both screens)
   Object.assign(dvote, { mine: false, theirs: false, kind: null });
   match = new Duel({ engine, player, flashlight, viewmodel, effects }, { role: myRole(), host: lobby.host }, onDuelEnd);
   $('#ctp-eyebrow').textContent = 'Final duel';

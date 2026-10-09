@@ -448,7 +448,7 @@ export class Match {
     const vel = f.clone().multiplyScalar(DART.speed).add(new THREE.Vector3(0, 2, 0));
     this.launchDart(origin, vel, true);
     this.send('fx', { k: 'dart', p: arr(origin), v: arr(vel) });
-    audio.play('dartFire');
+    audio.fx('recon', null, 1, 'dartFire');
     this.renderHud();
   }
 
@@ -548,7 +548,7 @@ export class Match {
     const vel = f.clone().multiplyScalar(FLASH.speed).add(new THREE.Vector3(0, 3, 0));
     this.launchFlash(origin, vel, true);
     this.send('fx', { k: 'flash', p: arr(origin), v: arr(vel) });
-    audio.play('throw');
+    audio.fx('flash', null, 1, 'throw');
     this.renderHud();
   }
 
@@ -587,7 +587,7 @@ export class Match {
     this.player.dash(DASH.distance, DASH.time);
     flash($('#speedlines'), 350);
     this.fovKick = 1;
-    audio.play('dash');
+    audio.fx('dash', null, 1, 'dash');
     this.send('fx', { k: 'dash', p: arr(this.player.pos), d: arr(dir) });
     this.renderHud();
   }
@@ -673,7 +673,7 @@ export class Match {
     this.cd.tp = TELEPORT.cooldown;
     this.effects.puff(from);
     this.effects.puff(pt);
-    audio.play('tp');
+    audio.fx('tp', null, 1, 'tp');
     this.engine.film.uniforms.uStatic.value = 0.6;
     this.send('fx', { k: 'tp', from: arr(from), to: arr(pt) });
     this.sendState(); // right away, so the seeker sees him vanish at once
@@ -694,8 +694,14 @@ export class Match {
     this.engine.film.uniforms.uStatic.value = Math.max(this.engine.film.uniforms.uStatic.value, 0.25);
     this.fovKick = 1; // (a quick lunge of the view)
     this.send('fx', { k: 'rush', p: arr(this.player.pos) });
-    audio.file(RUSH.sound, RUSH.volume, 'rush');
+    this.rushSound();
     this.renderHud();
+  }
+
+  // (both screens) run.mp3, then sprint2.mp3 right after it, as loud wherever you are
+  rushSound() {
+    audio.file(RUSH.sound, RUSH.volume, 'rush');
+    setTimeout(() => { if (!this.over) audio.fx('sprint2'); }, RUSH.thenMs);
   }
 
   endRush() {
@@ -720,7 +726,7 @@ export class Match {
     const origin = cam.position.clone().addScaledVector(f, 0.6);
     this.eyeOut = this.launchEye(origin, f, true);
     this.send('fx', { k: 'eye', p: arr(origin), d: arr(f) });
-    audio.play('eye');
+    audio.fx('eye', null, 1, 'eye');
     this.renderHud();
   }
 
@@ -939,12 +945,12 @@ export class Match {
         audio.play('shot', this.at(from));
         break;
       }
-      case 'dart': this.launchDart(v3(d.p), v3(d.v), false); audio.play('dartFire', this.at(v3(d.p))); break;
-      case 'flash': this.launchFlash(v3(d.p), v3(d.v), false); audio.play('throw', this.at(v3(d.p))); break;
-      case 'dash': this.effects.wind(v3(d.p), d.d ? v3(d.d) : new THREE.Vector3(0, 0, -1)); audio.play('dash', this.at(v3(d.p))); break;
-      case 'eye': this.remoteEye = this.launchEye(v3(d.p), v3(d.d), false); audio.play('eye', this.at(v3(d.p))); break;
+      case 'dart': this.launchDart(v3(d.p), v3(d.v), false); audio.fx('recon', this.at(v3(d.p)), 1, 'dartFire'); break;
+      case 'flash': this.launchFlash(v3(d.p), v3(d.v), false); audio.fx('flash', this.at(v3(d.p)), 1, 'throw'); break;
+      case 'dash': this.effects.wind(v3(d.p), d.d ? v3(d.d) : new THREE.Vector3(0, 0, -1)); audio.fx('dash', this.at(v3(d.p)), 1, 'dash'); break;
+      case 'eye': this.remoteEye = this.launchEye(v3(d.p), v3(d.d), false); audio.fx('eye', this.at(v3(d.p)), 1, 'eye'); break;
       case 'eyestop': this.remoteEye?.stop(v3(d.p)); this.remoteEye = null; break; // stopped early: at the hunter's spot
-      case 'rush': audio.file(RUSH.sound, RUSH.volume, 'rush'); break; // (the seeker hears him start to run, wherever Iso is)
+      case 'rush': this.rushSound(); break; // (the seeker hears him start to run, wherever Iso is)
       case 'tpcast':
         this.effects.tpWindup(v3(d.from), TELEPORT.castMs / 1000);
         this.effects.tpWindup(v3(d.to), TELEPORT.castMs / 1000);
@@ -953,7 +959,7 @@ export class Match {
       case 'tp':
         this.effects.puff(v3(d.from));
         this.effects.puff(v3(d.to));
-        audio.play('tp', this.at(v3(d.from)));
+        audio.fx('tp', this.at(v3(d.from)), 1, 'tp');
         break;
     }
   }

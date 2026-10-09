@@ -39,6 +39,34 @@ async function loadSteps() {
   steps = loaded.filter(Boolean);
 }
 
+// Ability and event sounds from files (public/sounds/fx/), played with audio.fx(name). They're
+// recorded at very different levels (tp.mp3 is 20× quieter than dash.mp3), so each is measured once
+// loaded and brought to the same loudness (FX_LEVEL, an average; never past FX_PEAK at its
+// loudest), times FX_BOOST if it should stand out. Leading silence is skipped, except where it's
+// part of the timing. Until loaded (or if a file can't be), the synthesized sound plays instead.
+const FX = {
+  recon: 'sounds/fx/recon.mp3', flash: 'sounds/fx/flash.mp3', dash: 'sounds/fx/dash.mp3',
+  eye: 'sounds/fx/eye.mp3', tp: 'sounds/fx/tp.mp3', sprint2: 'sounds/fx/sprint2.mp3', start1v1: 'sounds/fx/1v1start.mp3',
+};
+const FX_LEVEL = 0.06, FX_PEAK = 0.9;
+const FX_BOOST = { tp: 1.5 }; // (the teleport: a bit stronger than the others)
+const fx = {}; // name -> { buf, gain, offset }
+function loadFx() {
+  for (const [name, url] of Object.entries(FX)) {
+    loadFile(url).then((buf) => {
+      if (!buf) return;
+      const d = buf.getChannelData(0);
+      let peak = 0, sum = 0;
+      for (let i = 0; i < d.length; i++) { const v = Math.abs(d[i]); peak = Math.max(peak, v); sum += v * v; }
+      if (peak < 1e-4) return;
+      const rms = Math.sqrt(sum / d.length);
+      let first = 0;
+      while (first < d.length && Math.abs(d[first]) < peak * 0.08) first++;
+      fx[name] = { buf, gain: Math.min(FX_LEVEL / rms, FX_PEAK / peak) * (FX_BOOST[name] ?? 1), offset: Math.max(0, first / buf.sampleRate - 0.01) };
+    });
+  }
+}
+
 // plain white noise: bright, for the crunch of leaves underfoot
 function white(seconds = 1) {
   const b = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
@@ -160,14 +188,14 @@ const SOUNDS = {
 };
 
 // --- ambience: a quiet night forest ---------------------------------------------------
-// A low wind bed with slow gusts, crickets, a distant owl now and then, twigs snapping and
-// branches creaking somewhere in the dark (they mean nothing, but you can't know that), and
-// a low drone that swells with danger. Danger (0..1, set by the match from how close the
-// hunter is) also hushes the crickets, like real ones going quiet near a predator.
-// Everything goes through `amb`, whose level is settings.ambience.
-let amb = null, crickets = null, drone = null, windGain = null, windFilter = null;
+// Crickets, a distant owl now and then, twigs snapping and branches creaking somewhere in the
+// dark (they mean nothing, but you can't know that), and a low drone that swells with danger.
+// Danger (0..1, set by the match from how close the hunter is) also hushes the crickets, like
+// real ones going quiet near a predator. (No wind.) Everything goes through `amb`, whose level
+// is settings.ambience.
+let amb = null, crickets = null, drone = null;
 const rand = (a, b) => a + Math.random() * (b - a);
-const ambient = { crickets: [], nextOwl: 0, nextTwig: 0, nextGust: 0, danger: 0 };
+const ambient = { crickets: [], nextOwl: 0, nextTwig: 0, danger: 0 };
 
 // a sound somewhere around you in the dark: distance (m) and a random side
 const somewhere = (near, far) => ({ dist: rand(near, far), pan: rand(-1, 1) });
@@ -231,16 +259,7 @@ function startAmbience() {
   amb.connect(master);
   const now = ctx.currentTime;
 
-  // wind: low and soft, with a gust every so often (scheduled below)
-  const src = ctx.createBufferSource();
-  src.buffer = noise(6);
-  src.loop = true;
-  windFilter = ctx.createBiquadFilter();
-  windFilter.type = 'lowpass'; windFilter.frequency.value = 320;
-  windGain = ctx.createGain();
-  windGain.gain.value = 0.035;
-  src.connect(windFilter).connect(windGain).connect(amb);
-  src.start();
+  // (no wind: the night is just the crickets, the odd owl or twig, and the footsteps)
 
   // crickets: a few, each with its own pitch, rhythm and place
   crickets = ctx.createGain();
@@ -270,7 +289,6 @@ function startAmbience() {
 
   ambient.nextOwl = now + rand(15, 30);
   ambient.nextTwig = now + rand(8, 20);
-  ambient.nextGust = now + rand(5, 12);
   // schedule a little ahead, a few times a second
   setInterval(() => {
     if (ctx.state !== 'running') return;
@@ -280,15 +298,6 @@ function startAmbience() {
     }
     if (ambient.nextOwl < ahead) { owl(Math.max(ambient.nextOwl, t)); ambient.nextOwl += rand(30, 70); }
     if (ambient.nextTwig < ahead) { twig(Math.max(ambient.nextTwig, t)); ambient.nextTwig += rand(12, 35); }
-    if (ambient.nextGust < ahead) {
-      // a gust: swell for a few seconds, then settle back
-      const at = Math.max(ambient.nextGust, t), up = rand(2, 4), down = rand(3, 6);
-      windGain.gain.setTargetAtTime(rand(0.07, 0.11), at, up / 3);
-      windGain.gain.setTargetAtTime(0.035, at + up, down / 3);
-      windFilter.frequency.setTargetAtTime(rand(500, 750), at, up / 3);
-      windFilter.frequency.setTargetAtTime(320, at + up, down / 3);
-      ambient.nextGust = at + up + down + rand(6, 16);
-    }
   }, 200);
 }
 
@@ -312,6 +321,7 @@ export const audio = {
     noiseBuf = noise();
     whiteBuf = white();
     loadSteps();
+    loadFx();
     startAmbience();
   },
 
@@ -429,6 +439,18 @@ export const audio = {
     src.start(Math.max(t, ctx.currentTime));
   },
   preload(url) { if (ctx) loadFile(url); },
+
+  // one of the FX sounds (leveled, see FX), optionally placed in the world ({ dist, pan }); until
+  // it's loaded, or if it can't be, `fallback` (a synthesized sound) instead
+  fx(name, at = null, vol = 1, fallback = null) {
+    if (!ctx) return;
+    const f = fx[name];
+    if (!f) { if (fallback) this.play(fallback, at, vol); return; }
+    const src = ctx.createBufferSource();
+    src.buffer = f.buf;
+    src.connect(out(at, vol * f.gain));
+    src.start(ctx.currentTime, f.offset);
+  },
 
   // play a named sound, optionally placed in the world ({ dist, pan })
   play(name, at, vol = 1) {

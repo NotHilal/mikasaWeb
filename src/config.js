@@ -60,15 +60,16 @@ export const FLICKER = { first: 60, min: 60, max: 180, nearFaster: 2, flickerMs:
 // every `min`..`max` seconds at random, never in the first `first` seconds, during a grab, or when
 // the real hunter is closer than `safeDist` metres (so a fake is never mistaken for him, or him for a
 // fake). One of (chances in `kinds`): a sighting (Slender between the trees `sightDist` metres off,
-// right ahead, for `sightMs`), the whisper (`whisper`, from one side), a sudden silence (the crickets
-// stop for `silenceMs`). And after taking a page, `behindChance` of the time, Slender stands right
-// behind you (`behindDist` m) until you turn round (then the whisper), or `behindMs` goes by.
+// right ahead, for `sightMs`), a sudden silence (the crickets stop for `silenceMs`). The whisper
+// (`whisper`, from one side) comes once a game, at a random moment between `whisperAt` seconds in
+// (put off a little if the hunter's near then). And after taking a page, `behindChance` of the
+// time, Slender stands right behind you (`behindDist` m) until you turn round, or `behindMs` goes by.
 export const SCARES = {
   first: 120, min: 90, max: 180, safeDist: 30,
-  kinds: { sight: 0.4, whisper: 0.4, silence: 0.2 },
+  kinds: { sight: 0.65, silence: 0.35 },
   sightDist: [8, 13], sightMs: 900,
-  // (the file is quiet, its loudest only 18% of full: this brings it up to about 70%)
-  whisper: 'sounds/whisper.mp3', whisperVol: 4,
+  // (the file is quiet, its loudest only 18% of full: ×3 brings it up to about 55%)
+  whisper: 'sounds/whisper.mp3', whisperVol: 3, whisperAt: [120, 600],
   silenceMs: 8000,
   behindChance: 0.35, behindDist: 6, behindMs: 7000,
 };
@@ -168,7 +169,8 @@ export const DASH = { distance: 7, time: 0.2, cooldown: 12 };
 export const TELEPORT = { range: 14, cooldown: 20, castMs: 1000 /* wind-up before he moves */, seekerView: 50 /* degrees */, seekerViewDist: 45 };
 // sprint: `speed` × his walk for `time` seconds. A stun (or a grab) ends it. As it starts, `sound`
 // plays for both players, as loud wherever they are (no distance); without the file, a made-up one.
-export const RUSH = { speed: 2, time: 3, cooldown: 25, sound: 'sounds/run.mp3', volume: 1 };
+// Then, `thenMs` later (when run.mp3 is over), sprint2.mp3 (audio.js FX), the same way.
+export const RUSH = { speed: 2, time: 3, cooldown: 25, sound: 'sounds/run.mp3', volume: 1, thenMs: 640 };
 // eye: flies up to speed × flight metres (about 42 m); pressing Eye again while it flies stops it there
 export const EYE = { speed: 16, flight: 2.6, delay: 0.5, radius: 25, revealMs: 3000, cooldown: 40 };
 

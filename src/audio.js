@@ -47,6 +47,7 @@ async function loadSteps() {
 const FX = {
   recon: 'sounds/fx/recon.mp3', flash: 'sounds/fx/flash.mp3', dash: 'sounds/fx/dash.mp3',
   eye: 'sounds/fx/eye.mp3', tp: 'sounds/fx/tp.mp3', start1v1: 'sounds/fx/1v1start.mp3',
+  behind: 'sounds/fx/behindyou.mp3', // (the cabin's page: right behind your head)
 };
 const FX_LEVEL = 0.06, FX_PEAK = 0.9;
 const FX_BOOST = { tp: 1.5 }; // (the teleport: a bit stronger than the others)
